@@ -225,11 +225,6 @@ export class DriftEngine {
         isDrift: score > this.config.driftThreshold
       };
 
-      // Debug logging for identical data test
-      if (process.env.NODE_ENV === 'test') {
-        console.log(`[DEBUG] ${method.name}: ${score.toFixed(6)}, isDrift: ${score > this.config.driftThreshold}`);
-      }
-
       if (score > this.config.driftThreshold) {
         results.isDrift = true;
       }
@@ -315,22 +310,15 @@ export class DriftEngine {
     const sortedBaseline = [...baseline].sort((a, b) => a - b);
     const sortedCurrent = [...current].sort((a, b) => a - b);
 
-    // Merge both arrays with labels to track which distribution each value comes from
-    const merged = [];
-    for (const val of sortedBaseline) merged.push({ val, dist: 'baseline' });
-    for (const val of sortedCurrent) merged.push({ val, dist: 'current' });
-    merged.sort((a, b) => a.val - b.val);
+    // Get all unique values from both distributions
+    const allValues = [...new Set([...sortedBaseline, ...sortedCurrent])].sort((a, b) => a - b);
 
     let maxDiff = 0;
-    let baselineCount = 0;
-    let currentCount = 0;
 
-    for (const item of merged) {
-      if (item.dist === 'baseline') {
-        baselineCount++;
-      } else {
-        currentCount++;
-      }
+    for (const value of allValues) {
+      // Count how many values are <= this value in each distribution (ECDF)
+      const baselineCount = sortedBaseline.filter(x => x <= value).length;
+      const currentCount = sortedCurrent.filter(x => x <= value).length;
 
       const cdfBaseline = baselineCount / baseline.length;
       const cdfCurrent = currentCount / current.length;
