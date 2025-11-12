@@ -1,113 +1,126 @@
 /**
- * DriftEngine - Core Data Drift Detection and Prediction Engine
+ * DriftEngine - Core Multi-Method Drift Detection Engine
  *
- * Enterprise-grade platform for detecting, predicting, and adapting to data drift
- * in production ML systems before it impacts model performance.
+ * Implements research-backed statistical methods:
+ * - PSI (Population Stability Index): Industry standard for credit risk
+ * - KS (Kolmogorov-Smirnov): Non-parametric distribution comparison
+ * - JSD (Jensen-Shannon Divergence): Symmetric KL divergence
+ * - Statistical Drift: Mean and standard deviation shifts
  *
- * Research-backed approach using:
- * - Statistical drift detection (KS, PSI, JS-Divergence)
- * - Predictive drift forecasting using historical patterns
- * - Adaptive response system with AgentDB memory
- * - Real-time monitoring and alerting
+ * TDD Implementation with AgentDB Integration
  */
 
+import {
+  createDatabase,
+  EmbeddingService,
+  ReflexionMemory,
+  SkillLibrary
+} from 'agentdb';
+
 export class DriftEngine {
-  constructor(config = {}) {
+  constructor(config = {}, dependencies = null) {
     this.config = {
       driftThreshold: config.driftThreshold || 0.1,
-      predictionWindow: config.predictionWindow || 7, // days
-      autoAdapt: config.autoAdapt !== false,
-      monitoringInterval: config.monitoringInterval || 3600000, // 1 hour
+      predictionWindow: config.predictionWindow || 7,
+      autoAdapt: config.autoAdapt !== undefined ? config.autoAdapt : false,
+      dbPath: config.dbPath || ':memory:',
       ...config
     };
 
-    // Memory stores for learning patterns (simplified, no database)
-    this.episodeMemory = [];
-    this.skillMemory = [];
-    this.causalMemory = [];
+    // Initialize AgentDB for learning and memory
+    // Support dependency injection for testing
+    if (dependencies) {
+      this.db = dependencies.db;
+      this.embedder = dependencies.embedder;
+      this.reflexion = dependencies.reflexion;
+      this.skills = dependencies.skills;
+    } else {
+      this.db = createDatabase(this.config.dbPath);
+      this.embedder = new EmbeddingService();
+      this.reflexion = new ReflexionMemory(this.db, this.embedder);
+      this.skills = new SkillLibrary(this.db, this.embedder);
+    }
 
-    // Drift detection state
+    // Baseline distribution storage
     this.baselineDistribution = null;
-    this.driftHistory = [];
-    this.predictions = [];
-    this.alerts = [];
+
+    // Drift detection history
+    this.history = [];
 
     // Statistics
     this.stats = {
       totalChecks: 0,
-      driftsDetected: 0,
-      driftsPredicted: 0,
-      falsePositives: 0,
-      adaptations: 0,
+      driftDetected: 0,
       startTime: Date.now()
     };
   }
 
   /**
-   * Set baseline distribution for drift detection
-   * @param {Array<number>} data - Training/baseline data
-   * @param {Object} metadata - Metadata about the baseline
+   * Set baseline distribution from training data
    */
   async setBaseline(data, metadata = {}) {
+    // Validate input
+    if (!data || data.length === 0) {
+      throw new Error('Baseline data cannot be empty');
+    }
+
+    // Calculate statistics
+    const statistics = this._calculateStatistics(data);
+
+    // Store baseline
     this.baselineDistribution = {
       data: data,
-      mean: this._calculateMean(data),
-      std: this._calculateStd(data),
-      min: Math.min(...data),
-      max: Math.max(...data),
-      timestamp: Date.now(),
-      metadata: metadata
+      statistics: statistics,
+      metadata: metadata,
+      timestamp: Date.now()
     };
 
-    // Store baseline in memory for future reference
-    this.episodeMemory.push({
-      sessionId: 'baseline',
+    // Store in AgentDB for versioning
+    await this.reflexion.storeEpisode({
+      sessionId: `baseline-${Date.now()}`,
       task: 'set_baseline',
       reward: 1.0,
       success: true,
-      timestamp: Date.now(),
-      critique: `Baseline set with ${data.length} samples, mean=${this.baselineDistribution.mean.toFixed(2)}, std=${this.baselineDistribution.std.toFixed(2)}`
+      critique: `Baseline set with ${data.length} samples`
     });
 
-    console.log(`✓ Baseline set: ${data.length} samples, mean=${this.baselineDistribution.mean.toFixed(2)}, std=${this.baselineDistribution.std.toFixed(2)}`);
+    console.log(`✓ Baseline set: ${data.length} samples, mean=${statistics.mean.toFixed(2)}, std=${statistics.std.toFixed(2)}`);
+
     return this.baselineDistribution;
   }
 
   /**
    * Detect drift in current data using multiple statistical methods
-   * @param {Array<number>} currentData - Current production data
-   * @param {Object} options - Detection options
-   * @returns {Object} Drift detection results
    */
   async detectDrift(currentData, options = {}) {
+    // Validate baseline is set
     if (!this.baselineDistribution) {
       throw new Error('Baseline not set. Call setBaseline() first.');
     }
 
-    this.stats.totalChecks++;
     const results = {
       timestamp: Date.now(),
       isDrift: false,
       severity: 'none',
       scores: {},
-      methods: {}
+      methods: {},
+      averageScore: 0
     };
 
-    // Apply multiple drift detection methods
+    // Calculate drift using multiple methods
     const methods = [
-      { name: 'psi', fn: this._calculatePSI },
-      { name: 'ks', fn: this._kolmogorovSmirnov },
-      { name: 'jsd', fn: this._jensenShannonDivergence },
-      { name: 'statistical', fn: this._statisticalDrift }
+      { name: 'psi', fn: this._calculatePSI.bind(this) },
+      { name: 'ks', fn: this._kolmogorovSmirnov.bind(this) },
+      { name: 'jsd', fn: this._jensenShannonDivergence.bind(this) },
+      { name: 'statistical', fn: this._statisticalDrift.bind(this) }
     ];
 
     for (const method of methods) {
-      const score = method.fn.call(this, this.baselineDistribution.data, currentData);
+      const score = method.fn(this.baselineDistribution.data, currentData);
       results.scores[method.name] = score;
       results.methods[method.name] = {
         score: score,
-        threshold: this.config.driftThreshold,
-        drift: score > this.config.driftThreshold
+        isDrift: score > this.config.driftThreshold
       };
 
       if (score > this.config.driftThreshold) {
@@ -115,135 +128,60 @@ export class DriftEngine {
       }
     }
 
+    // Calculate average score
+    const scores = Object.values(results.scores);
+    results.averageScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+
     // Determine severity
-    const avgScore = Object.values(results.scores).reduce((a, b) => a + b, 0) / Object.keys(results.scores).length;
-    results.severity = this._calculateSeverity(avgScore);
-    results.averageScore = avgScore;
+    results.severity = this._calculateSeverity(results.averageScore);
 
-    // Store drift event in history
-    this.driftHistory.push(results);
-
-    // Learn from this detection
+    // Update statistics
+    this.stats.totalChecks++;
     if (results.isDrift) {
-      this.stats.driftsDetected++;
-      await this._learnFromDrift(results, currentData);
+      this.stats.driftDetected++;
     }
 
-    // Store in episode memory
-    this.episodeMemory.push({
+    // Store in history
+    this.history.push(results);
+
+    // Store drift event in AgentDB
+    await this.reflexion.storeEpisode({
       sessionId: `drift-check-${Date.now()}`,
-      task: 'drift_detection',
-      reward: results.isDrift ? 0.5 : 1.0,
+      task: 'detect_drift',
+      reward: results.isDrift ? 0.3 : 0.9,
       success: !results.isDrift,
-      timestamp: Date.now(),
-      critique: `Drift ${results.isDrift ? 'detected' : 'not detected'} with severity ${results.severity}, avg score: ${avgScore.toFixed(3)}`
+      critique: `Drift ${results.isDrift ? 'detected' : 'not detected'}: severity ${results.severity}`
     });
 
     return results;
   }
 
   /**
-   * Predict future drift using historical patterns and AgentDB learning
-   * @param {number} daysAhead - Days to predict ahead
-   * @returns {Object} Drift prediction
-   */
-  async predictDrift(daysAhead = 7) {
-    if (this.driftHistory.length < 3) {
-      return {
-        confidence: 0,
-        prediction: 'insufficient_data',
-        daysAhead: daysAhead,
-        message: 'Need at least 3 historical drift checks for prediction'
-      };
-    }
-
-    // Analyze historical drift patterns
-    const recentDrifts = this.driftHistory.slice(-30); // Last 30 checks
-    const driftRate = recentDrifts.filter(d => d.isDrift).length / recentDrifts.length;
-
-    // Calculate trend
-    const scores = recentDrifts.map(d => d.averageScore);
-    const trend = this._calculateTrend(scores);
-
-    // Use causal memory to find patterns
-    const driftCauses = await this._analyzeDriftCauses();
-
-    // Predict based on trend and historical patterns
-    const prediction = {
-      timestamp: Date.now(),
-      daysAhead: daysAhead,
-      driftRate: driftRate,
-      trend: trend,
-      predictedScore: this._extrapolateScore(scores, daysAhead),
-      confidence: this._calculateConfidence(recentDrifts),
-      prediction: 'no_drift',
-      causes: driftCauses,
-      recommendation: ''
-    };
-
-    // Determine prediction
-    if (prediction.predictedScore > this.config.driftThreshold * 0.8) {
-      prediction.prediction = 'drift_likely';
-      prediction.recommendation = 'Consider proactive model retraining or data collection adjustment';
-      this.stats.driftsPredicted++;
-    } else if (trend > 0.05) {
-      prediction.prediction = 'drift_possible';
-      prediction.recommendation = 'Monitor closely, trend is increasing';
-    } else {
-      prediction.prediction = 'no_drift';
-      prediction.recommendation = 'Continue normal monitoring';
-    }
-
-    // Store prediction
-    this.predictions.push(prediction);
-
-    // Learn from prediction
-    this.skillMemory.push({
-      name: `drift_prediction_${Date.now()}`,
-      description: `Drift prediction: ${prediction.prediction} with ${(prediction.confidence * 100).toFixed(0)}% confidence`,
-      timestamp: Date.now(),
-      successRate: prediction.confidence,
-      uses: 1,
-      avgReward: prediction.confidence
-    });
-
-    return prediction;
-  }
-
-  /**
-   * Get real-time drift statistics and insights
-   */
-  getStats() {
-    const runtime = (Date.now() - this.stats.startTime) / 1000 / 60; // minutes
-
-    return {
-      ...this.stats,
-      runtime: `${runtime.toFixed(1)} minutes`,
-      driftRate: this.stats.totalChecks > 0 ? (this.stats.driftsDetected / this.stats.totalChecks * 100).toFixed(1) + '%' : '0%',
-      avgChecksPerHour: this.stats.totalChecks / (runtime / 60),
-      recentDrifts: this.driftHistory.slice(-10),
-      recentPredictions: this.predictions.slice(-5),
-      alerts: this.alerts.slice(-10)
-    };
-  }
-
-  // ==================== STATISTICAL METHODS ====================
-
-  /**
    * Calculate Population Stability Index (PSI)
    * Industry standard for credit risk modeling
    */
-  _calculatePSI(baseline, current, bins = 10) {
-    const baselineBins = this._createBins(baseline, bins);
-    const currentBins = this._createBins(current, bins);
+  _calculatePSI(baseline, current) {
+    const bins = 10;
+    const baselineHist = this._createHistogram(baseline, bins);
+    const currentHist = this._createHistogram(current, bins);
 
     let psi = 0;
     for (let i = 0; i < bins; i++) {
-      const baselinePercent = (baselineBins[i] || 1e-10) / baseline.length;
-      const currentPercent = (currentBins[i] || 1e-10) / current.length;
-      psi += (currentPercent - baselinePercent) * Math.log(currentPercent / baselinePercent);
+      const baselinePct = baselineHist[i] / baseline.length;
+      const currentPct = currentHist[i] / current.length;
+
+      // Skip if both are zero (empty bins)
+      if (baselinePct === 0 && currentPct === 0) continue;
+
+      // Avoid log(0) by using small epsilon
+      const epsilon = 0.0001;
+      const baselineSafe = Math.max(baselinePct, epsilon);
+      const currentSafe = Math.max(currentPct, epsilon);
+
+      psi += (currentPct - baselinePct) * Math.log(currentSafe / baselineSafe);
     }
 
+    // PSI is always positive
     return Math.abs(psi);
   }
 
@@ -259,13 +197,17 @@ export class DriftEngine {
     let i = 0, j = 0;
 
     while (i < sortedBaseline.length && j < sortedCurrent.length) {
-      const cdfBaseline = i / sortedBaseline.length;
-      const cdfCurrent = j / sortedCurrent.length;
+      const cdfBaseline = (i + 1) / sortedBaseline.length;
+      const cdfCurrent = (j + 1) / sortedCurrent.length;
       const diff = Math.abs(cdfBaseline - cdfCurrent);
+
       maxDiff = Math.max(maxDiff, diff);
 
-      if (sortedBaseline[i] < sortedCurrent[j]) i++;
-      else j++;
+      if (sortedBaseline[i] < sortedCurrent[j]) {
+        i++;
+      } else {
+        j++;
+      }
     }
 
     return maxDiff;
@@ -273,173 +215,126 @@ export class DriftEngine {
 
   /**
    * Jensen-Shannon Divergence
-   * Symmetric version of KL divergence
+   * Symmetric measure of distribution similarity
    */
-  _jensenShannonDivergence(baseline, current, bins = 20) {
-    const p = this._createHistogram(baseline, bins);
-    const q = this._createHistogram(current, bins);
+  _jensenShannonDivergence(baseline, current) {
+    const bins = 10;
+    const baselineHist = this._createHistogram(baseline, bins);
+    const currentHist = this._createHistogram(current, bins);
+
+    // Normalize to probabilities
+    const p = baselineHist.map(x => x / baseline.length);
+    const q = currentHist.map(x => x / current.length);
+
+    // Calculate M = (P + Q) / 2
     const m = p.map((pi, i) => (pi + q[i]) / 2);
 
-    const kl = (dist1, dist2) => {
-      return dist1.reduce((sum, val, i) => {
-        if (val === 0) return sum;
-        return sum + val * Math.log(val / (dist2[i] || 1e-10));
-      }, 0);
-    };
+    // Calculate KL divergences
+    const klPM = this._klDivergence(p, m);
+    const klQM = this._klDivergence(q, m);
 
-    const jsd = 0.5 * kl(p, m) + 0.5 * kl(q, m);
-    return Math.sqrt(Math.max(0, jsd)); // JS distance
+    // JSD = 0.5 * KL(P||M) + 0.5 * KL(Q||M)
+    return 0.5 * klPM + 0.5 * klQM;
   }
 
   /**
-   * Statistical drift based on mean and standard deviation
+   * Statistical Drift Detection
+   * Based on mean and standard deviation shifts
    */
   _statisticalDrift(baseline, current) {
-    const baselineMean = this._calculateMean(baseline);
-    const baselineStd = this._calculateStd(baseline);
-    const currentMean = this._calculateMean(current);
+    const baselineStats = this._calculateStatistics(baseline);
+    const currentStats = this._calculateStatistics(current);
 
-    // Standardized difference
-    const zScore = Math.abs(currentMean - baselineMean) / (baselineStd || 1);
+    // Normalized difference in means
+    const meanDiff = Math.abs(currentStats.mean - baselineStats.mean) / baselineStats.std;
 
-    // Normalize to 0-1 range (z-score > 3 is very significant)
-    return Math.min(1, zScore / 3);
+    // Normalized difference in standard deviations
+    const stdDiff = Math.abs(currentStats.std - baselineStats.std) / baselineStats.std;
+
+    // Combined metric
+    return (meanDiff + stdDiff) / 2;
   }
 
-  // ==================== HELPER METHODS ====================
+  /**
+   * Calculate severity level based on average drift score
+   */
+  _calculateSeverity(avgScore) {
+    const threshold = this.config.driftThreshold;
 
-  _calculateMean(data) {
-    return data.reduce((sum, val) => sum + val, 0) / data.length;
-  }
-
-  _calculateStd(data) {
-    const mean = this._calculateMean(data);
-    const variance = data.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / data.length;
-    return Math.sqrt(variance);
-  }
-
-  _createBins(data, numBins) {
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const binSize = (max - min) / numBins;
-    const bins = new Array(numBins).fill(0);
-
-    data.forEach(value => {
-      const binIndex = Math.min(Math.floor((value - min) / binSize), numBins - 1);
-      bins[binIndex]++;
-    });
-
-    return bins;
-  }
-
-  _createHistogram(data, bins) {
-    const counts = this._createBins(data, bins);
-    const total = data.length;
-    return counts.map(count => count / total);
-  }
-
-  _calculateSeverity(score) {
-    if (score < this.config.driftThreshold * 0.5) return 'none';
-    if (score < this.config.driftThreshold) return 'low';
-    if (score < this.config.driftThreshold * 1.5) return 'medium';
-    if (score < this.config.driftThreshold * 2) return 'high';
+    if (avgScore < threshold * 0.5) return 'none';
+    if (avgScore < threshold) return 'low';
+    if (avgScore < threshold * 2) return 'medium';
+    if (avgScore < threshold * 3) return 'high';
     return 'critical';
   }
 
-  _calculateTrend(scores) {
-    if (scores.length < 2) return 0;
+  /**
+   * Get drift detection statistics
+   */
+  getStats() {
+    const driftRate = this.stats.totalChecks > 0
+      ? ((this.stats.driftDetected / this.stats.totalChecks) * 100).toFixed(1) + '%'
+      : '0%';
 
-    // Simple linear regression slope
-    const n = scores.length;
-    const sumX = (n * (n - 1)) / 2;
-    const sumY = scores.reduce((a, b) => a + b, 0);
-    const sumXY = scores.reduce((sum, y, x) => sum + x * y, 0);
-    const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
-
-    return (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    return {
+      totalChecks: this.stats.totalChecks,
+      driftDetected: this.stats.driftDetected,
+      driftRate: driftRate,
+      uptime: Date.now() - this.stats.startTime,
+      recentHistory: this.history.slice(-10)
+    };
   }
 
-  _extrapolateScore(scores, daysAhead) {
-    const trend = this._calculateTrend(scores);
-    const currentScore = scores[scores.length - 1];
-    return Math.max(0, Math.min(1, currentScore + trend * daysAhead));
+  /**
+   * Helper: Calculate basic statistics
+   */
+  _calculateStatistics(data) {
+    const n = data.length;
+    const mean = data.reduce((a, b) => a + b, 0) / n;
+    const variance = data.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+    const std = Math.sqrt(variance);
+
+    return {
+      mean: mean,
+      std: std,
+      min: Math.min(...data),
+      max: Math.max(...data),
+      count: n
+    };
   }
 
-  _calculateConfidence(recentDrifts) {
-    // Confidence based on data volume and consistency
-    const volumeScore = Math.min(1, recentDrifts.length / 30);
-    const consistencyScore = this._calculateConsistency(recentDrifts.map(d => d.averageScore));
-    return (volumeScore + consistencyScore) / 2;
-  }
+  /**
+   * Helper: Create histogram for binning data
+   */
+  _createHistogram(data, bins) {
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const binSize = (max - min) / bins;
 
-  _calculateConsistency(values) {
-    if (values.length < 2) return 0;
-    const std = this._calculateStd(values);
-    const mean = this._calculateMean(values);
-    const cv = mean > 0 ? std / mean : 1; // Coefficient of variation
-    return Math.max(0, 1 - cv); // Lower CV = higher consistency
-  }
+    const histogram = new Array(bins).fill(0);
 
-  async _learnFromDrift(driftResult, currentData) {
-    // Store causal relationship if we have previous drift events
-    if (this.driftHistory.length > 1) {
-      const previousDrift = this.driftHistory[this.driftHistory.length - 2];
-
-      // Store drift events in memory
-      const ep1 = {
-        id: this.episodeMemory.length,
-        sessionId: `drift-${previousDrift.timestamp}`,
-        task: 'drift_event',
-        reward: 1 - previousDrift.averageScore,
-        success: !previousDrift.isDrift,
-        timestamp: previousDrift.timestamp
-      };
-
-      const ep2 = {
-        id: this.episodeMemory.length + 1,
-        sessionId: `drift-${driftResult.timestamp}`,
-        task: 'drift_event',
-        reward: 1 - driftResult.averageScore,
-        success: !driftResult.isDrift,
-        timestamp: driftResult.timestamp
-      };
-
-      this.episodeMemory.push(ep1, ep2);
-
-      // Store causal relationship
-      this.causalMemory.push({
-        fromMemoryId: ep1.id,
-        toMemoryId: ep2.id,
-        similarity: this._calculateSimilarity(previousDrift, driftResult),
-        confidence: 0.7,
-        sampleSize: this.driftHistory.length,
-        timestamp: Date.now()
-      });
-    }
-  }
-
-  _calculateSimilarity(drift1, drift2) {
-    const scoreDiff = Math.abs(drift1.averageScore - drift2.averageScore);
-    return Math.max(0, 1 - scoreDiff);
-  }
-
-  async _analyzeDriftCauses() {
-    // Analyze patterns in drift history to identify causes
-    const causes = [];
-
-    if (this.driftHistory.length > 5) {
-      const recentDrifts = this.driftHistory.slice(-10);
-      const driftedChecks = recentDrifts.filter(d => d.isDrift);
-
-      if (driftedChecks.length > 0) {
-        causes.push({
-          type: 'high_drift_frequency',
-          confidence: driftedChecks.length / recentDrifts.length,
-          description: `${driftedChecks.length} of last ${recentDrifts.length} checks detected drift`
-        });
-      }
+    for (const value of data) {
+      let binIndex = Math.floor((value - min) / binSize);
+      if (binIndex >= bins) binIndex = bins - 1; // Handle edge case
+      histogram[binIndex]++;
     }
 
-    return causes;
+    return histogram;
+  }
+
+  /**
+   * Helper: Calculate KL divergence
+   */
+  _klDivergence(p, q) {
+    const epsilon = 0.0001;
+    let divergence = 0;
+
+    for (let i = 0; i < p.length; i++) {
+      const pi = Math.max(p[i], epsilon);
+      const qi = Math.max(q[i], epsilon);
+      divergence += pi * Math.log(pi / qi);
+    }
+
+    return divergence;
   }
 }

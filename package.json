@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node test.js"
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage"
   },
   "keywords": [
     "agentic-flow",
@@ -19,7 +21,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "agentic-flow": "^1.0.0",
-    "agentdb": "^1.0.0"
+    "agentic-flow": "^1.10.2",
+    "agentdb": "^1.6.1"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
+    "@vitest/coverage-v8": "^1.0.4"
   }
 }
