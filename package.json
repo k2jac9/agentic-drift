@@ -1,0 +1,25 @@
+{
+  "name": "drift-studio",
+  "version": "1.0.0",
+  "description": "DriftStudio with Agentic Flow and AgentDB integration",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "agentic-flow",
+    "agentdb",
+    "ai",
+    "agents",
+    "vector-database"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "agentic-flow": "^1.0.0",
+    "agentdb": "^1.0.0"
+  }
+}
