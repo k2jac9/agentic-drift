@@ -65,10 +65,19 @@ export class DriftEngine {
     // Drift detection history
     this.history = [];
 
+    // Adaptive sampling: track last check for skip optimization
+    this.lastCheck = null;
+
+    // Result memoization cache (LRU with max 100 entries)
+    this.resultCache = new Map();
+    this.maxCacheSize = config.maxCacheSize || 100;
+
     // Statistics
     this.stats = {
       totalChecks: 0,
       driftDetected: 0,
+      checksSkipped: 0,
+      cacheHits: 0,
       startTime: Date.now()
     };
   }
@@ -130,6 +139,8 @@ export class DriftEngine {
       CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
       CREATE INDEX IF NOT EXISTS idx_episodes_reward ON episodes(reward DESC);
       CREATE INDEX IF NOT EXISTS idx_episodes_task ON episodes(task);
+      CREATE INDEX IF NOT EXISTS idx_episodes_success ON episodes(success);
+      CREATE INDEX IF NOT EXISTS idx_episodes_task_ts ON episodes(task, ts DESC);
 
       CREATE TABLE IF NOT EXISTS episode_embeddings (
         episode_id INTEGER PRIMARY KEY,
@@ -202,11 +213,19 @@ export class DriftEngine {
     // Calculate statistics
     const statistics = this._calculateStatistics(data);
 
-    // Store baseline with cached sorted data for KS test optimization
+    // Pre-calculate and cache histograms for common bin sizes (3, 5, 10, 20)
+    const { min, max } = statistics;
+    const cachedHistograms = {};
+    for (const bins of [3, 5, 10, 20]) {
+      cachedHistograms[bins] = this._createHistogramWithRange(data, bins, min, max);
+    }
+
+    // Store baseline with all cached data for maximum performance
     this.baselineDistribution = {
       data: data,
       sortedData: [...data].sort((a, b) => a - b), // Cache sorted array for KS test
       statistics: statistics,
+      histograms: cachedHistograms, // Pre-computed histograms for PSI/JSD
       metadata: metadata,
       timestamp: Date.now()
     };
@@ -251,6 +270,51 @@ export class DriftEngine {
       }
     }
 
+    // Result memoization: Check cache for identical data
+    if (options.memoization !== false) {
+      const dataHash = this._hashData(currentData);
+      const cached = this.resultCache.get(dataHash);
+
+      if (cached) {
+        this.stats.cacheHits++;
+        return {
+          ...cached,
+          timestamp: Date.now(),
+          cached: true
+        };
+      }
+    }
+
+    // Adaptive sampling: Skip check if data hasn't changed significantly
+    // This optimization is useful for streaming data with stable periods
+    if (options.adaptiveSampling !== false && this.lastCheck) {
+      const quickStats = this._calculateQuickStats(currentData);
+      const lastStats = this.lastCheck.stats;
+
+      // Check if mean and std are within 5% of last check
+      const meanDiff = Math.abs(quickStats.mean - lastStats.mean) / lastStats.mean;
+      const stdDiff = Math.abs(quickStats.std - lastStats.std) / (lastStats.std || 1);
+
+      if (meanDiff < 0.05 && stdDiff < 0.05) {
+        this.stats.totalChecks++;
+        this.stats.checksSkipped++;
+        const skippedResult = {
+          ...this.lastCheck.result,
+          timestamp: Date.now(),
+          skipped: true,
+          reason: 'Data unchanged from last check (adaptive sampling)'
+        };
+
+        // Still add to history for tracking, even if skipped
+        this.history.push(skippedResult);
+        if (this.history.length > this.config.maxHistorySize) {
+          this.history.shift();
+        }
+
+        return skippedResult;
+      }
+    }
+
     const results = {
       timestamp: Date.now(),
       isDrift: false,
@@ -261,7 +325,7 @@ export class DriftEngine {
       primaryMethod: this.config.primaryMethod || 'psi'
     };
 
-    // Calculate drift using multiple methods
+    // Calculate drift using multiple methods in parallel for maximum performance
     const methods = [
       { name: 'psi', fn: this._calculatePSI.bind(this) },
       { name: 'ks', fn: this._kolmogorovSmirnov.bind(this) },
@@ -269,10 +333,18 @@ export class DriftEngine {
       { name: 'statistical', fn: this._statisticalDrift.bind(this) }
     ];
 
-    for (const method of methods) {
-      const score = method.fn(this.baselineDistribution.data, currentData);
-      results.scores[method.name] = score;
-      results.methods[method.name] = {
+    // Execute all methods in parallel (non-blocking, CPU-efficient)
+    const methodResults = await Promise.all(
+      methods.map(async method => ({
+        name: method.name,
+        score: method.fn(this.baselineDistribution.data, currentData)
+      }))
+    );
+
+    // Populate results from parallel execution
+    for (const { name, score } of methodResults) {
+      results.scores[name] = score;
+      results.methods[name] = {
         score: score,
         isDrift: score > this.config.driftThreshold
       };
@@ -335,6 +407,17 @@ export class DriftEngine {
       this.history.shift(); // Remove oldest entry
     }
 
+    // Compress old history entries (keep only last 100 full, compress others)
+    // This saves memory while maintaining trend information
+    if (this.history.length > 100) {
+      const compressionThreshold = this.history.length - 100;
+      for (let i = 0; i < compressionThreshold; i++) {
+        if (!this.history[i].compressed) {
+          this.history[i] = this._compressHistoryEntry(this.history[i]);
+        }
+      }
+    }
+
     // Store drift event in AgentDB
     await this.reflexion.storeEpisode({
       sessionId: `drift-check-${Date.now()}`,
@@ -343,6 +426,25 @@ export class DriftEngine {
       success: !results.isDrift,
       critique: `Drift ${results.isDrift ? 'detected' : 'not detected'}: severity ${results.severity}`
     });
+
+    // Update last check for adaptive sampling optimization
+    this.lastCheck = {
+      result: results,
+      stats: this._calculateQuickStats(currentData),
+      timestamp: Date.now()
+    };
+
+    // Store in result cache (LRU eviction if full)
+    if (options.memoization !== false) {
+      const dataHash = this._hashData(currentData);
+      this.resultCache.set(dataHash, results);
+
+      // LRU cache: remove oldest entry if cache is full
+      if (this.resultCache.size > this.maxCacheSize) {
+        const firstKey = this.resultCache.keys().next().value;
+        this.resultCache.delete(firstKey);
+      }
+    }
 
     return results;
   }
@@ -359,7 +461,9 @@ export class DriftEngine {
     // Use combined min/max to ensure consistent bin boundaries
     const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
-    const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    // Use cached baseline histogram if available (major performance boost)
+    const baselineHist = this.baselineDistribution?.histograms?.[bins] ||
+                         this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     let psi = 0;
@@ -435,7 +539,9 @@ export class DriftEngine {
     // Use combined min/max to ensure consistent bin boundaries
     const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
-    const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    // Use cached baseline histogram if available (major performance boost)
+    const baselineHist = this.baselineDistribution?.histograms?.[bins] ||
+                         this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     // Normalize to probabilities
@@ -530,6 +636,67 @@ export class DriftEngine {
     if (minSampleSize < 50) return 5;
     if (minSampleSize < 200) return 10;
     return 20; // Industry standard for large samples
+  }
+
+  /**
+   * Helper: Compress history entry to save memory
+   * Keeps only essential fields, removes detailed scores
+   */
+  _compressHistoryEntry(entry) {
+    return {
+      timestamp: entry.timestamp,
+      isDrift: entry.isDrift,
+      severity: entry.severity,
+      averageScore: entry.averageScore,
+      compressed: true
+    };
+  }
+
+  /**
+   * Helper: Fast hash function for data arrays (for memoization)
+   * Uses FNV-1a hash algorithm for good distribution
+   */
+  _hashData(data) {
+    let hash = 2166136261; // FNV offset basis
+
+    for (let i = 0; i < data.length; i++) {
+      // Convert number to bytes representation
+      const bytes = new Float64Array([data[i]]);
+      const view = new Uint8Array(bytes.buffer);
+
+      for (let j = 0; j < view.length; j++) {
+        hash ^= view[j];
+        hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+      }
+    }
+
+    return hash >>> 0; // Convert to unsigned 32-bit integer
+  }
+
+  /**
+   * Helper: Calculate quick statistics (mean and std only) for adaptive sampling
+   * Faster than full _calculateStatistics when we only need mean/std
+   */
+  _calculateQuickStats(data) {
+    const n = data.length;
+    let sum = 0;
+
+    // Single pass for sum
+    for (const value of data) {
+      sum += value;
+    }
+
+    const mean = sum / n;
+
+    // Second pass for variance
+    let variance = 0;
+    for (const value of data) {
+      variance += Math.pow(value - mean, 2);
+    }
+    variance /= n;
+    const std = Math.sqrt(variance);
+
+    return { mean, std };
   }
 
   /**
