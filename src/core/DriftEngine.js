@@ -35,10 +35,11 @@ export class DriftEngine {
       this.reflexion = dependencies.reflexion;
       this.skills = dependencies.skills;
     } else {
-      this.db = createDatabase(this.config.dbPath);
-      this.embedder = new EmbeddingService();
-      this.reflexion = new ReflexionMemory(this.db, this.embedder);
-      this.skills = new SkillLibrary(this.db, this.embedder);
+      // Dependencies will be initialized in the create() factory method
+      this.db = null;
+      this.embedder = null;
+      this.reflexion = null;
+      this.skills = null;
     }
 
     // Baseline distribution storage
@@ -53,6 +54,106 @@ export class DriftEngine {
       driftDetected: 0,
       startTime: Date.now()
     };
+  }
+
+  /**
+   * Factory method for creating DriftEngine with async AgentDB initialization
+   * Use this for production, constructor with dependencies for testing
+   */
+  static async create(config = {}) {
+    const engine = new DriftEngine(config);
+
+    // Initialize AgentDB components asynchronously
+    engine.db = await createDatabase(engine.config.dbPath);
+
+    // Initialize AgentDB schema (episodes, skills tables, etc.)
+    await engine._initializeAgentDBSchema();
+
+    // Initialize EmbeddingService with config
+    engine.embedder = new EmbeddingService({
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    await engine.embedder.initialize();
+
+    engine.reflexion = new ReflexionMemory(engine.db, engine.embedder);
+    engine.skills = new SkillLibrary(engine.db, engine.embedder);
+
+    console.log('✅ Using sql.js (WASM SQLite, no build tools required)');
+
+    return engine;
+  }
+
+  /**
+   * Initialize AgentDB schema (episodes, skills, etc.)
+   * @private
+   */
+  async _initializeAgentDBSchema() {
+    const schema = `
+      -- Episodes table for Reflexion Memory
+      CREATE TABLE IF NOT EXISTS episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        session_id TEXT NOT NULL,
+        task TEXT NOT NULL,
+        input TEXT,
+        output TEXT,
+        critique TEXT,
+        reward REAL DEFAULT 0.0,
+        success BOOLEAN DEFAULT 0,
+        latency_ms INTEGER,
+        tokens_used INTEGER,
+        tags TEXT,
+        metadata JSON,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_episodes_ts ON episodes(ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
+      CREATE INDEX IF NOT EXISTS idx_episodes_reward ON episodes(reward DESC);
+      CREATE INDEX IF NOT EXISTS idx_episodes_task ON episodes(task);
+
+      CREATE TABLE IF NOT EXISTS episode_embeddings (
+        episode_id INTEGER PRIMARY KEY,
+        embedding BLOB NOT NULL,
+        embedding_model TEXT DEFAULT 'all-MiniLM-L6-v2',
+        FOREIGN KEY(episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+      );
+
+      -- Skills table for Skill Library
+      CREATE TABLE IF NOT EXISTS skills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        description TEXT,
+        signature JSON NOT NULL,
+        code TEXT,
+        success_rate REAL DEFAULT 0.0,
+        uses INTEGER DEFAULT 0,
+        avg_reward REAL DEFAULT 0.0,
+        avg_latency_ms INTEGER DEFAULT 0,
+        created_from_episode INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        last_used_at INTEGER,
+        metadata JSON,
+        FOREIGN KEY(created_from_episode) REFERENCES episodes(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_skills_success ON skills(success_rate DESC);
+      CREATE INDEX IF NOT EXISTS idx_skills_uses ON skills(uses DESC);
+      CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
+
+      CREATE TABLE IF NOT EXISTS skill_embeddings (
+        skill_id INTEGER PRIMARY KEY,
+        embedding BLOB NOT NULL,
+        embedding_model TEXT DEFAULT 'all-MiniLM-L6-v2',
+        FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE
+      );
+    `;
+
+    // Execute schema in a single transaction
+    this.db.exec(schema);
   }
 
   /**

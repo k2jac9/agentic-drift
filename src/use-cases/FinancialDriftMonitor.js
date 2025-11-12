@@ -12,6 +12,12 @@
  */
 
 import { DriftEngine } from '../core/DriftEngine.js';
+import {
+  createDatabase,
+  EmbeddingService,
+  ReflexionMemory,
+  SkillLibrary
+} from 'agentdb';
 
 export class FinancialDriftMonitor extends DriftEngine {
   constructor(config = {}, dependencies = null) {
@@ -42,6 +48,46 @@ export class FinancialDriftMonitor extends DriftEngine {
 
     // Audit log for regulatory compliance
     this.auditLog = [];
+  }
+
+  /**
+   * Factory method for creating FinancialDriftMonitor with async AgentDB initialization
+   * Use this for production, constructor with dependencies for testing
+   */
+  static async create(config = {}) {
+    // Create financial config
+    const financialConfig = {
+      driftThreshold: config.driftThreshold || 0.15,
+      predictionWindow: config.predictionWindow || 30,
+      autoAdapt: config.autoAdapt !== false,
+      industry: 'financial',
+      primaryMethod: 'psi',
+      dbPath: config.dbPath || ':memory:',
+      ...config
+    };
+
+    const monitor = new FinancialDriftMonitor(financialConfig, null);
+
+    // Initialize AgentDB components asynchronously
+    monitor.db = await createDatabase(monitor.config.dbPath);
+
+    // Initialize AgentDB schema (inherited from DriftEngine)
+    await monitor._initializeAgentDBSchema();
+
+    // Initialize EmbeddingService with config
+    monitor.embedder = new EmbeddingService({
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    await monitor.embedder.initialize();
+
+    monitor.reflexion = new ReflexionMemory(monitor.db, monitor.embedder);
+    monitor.skills = new SkillLibrary(monitor.db, monitor.embedder);
+
+    console.log('✅ Using sql.js (WASM SQLite, no build tools required)');
+
+    return monitor;
   }
 
   /**
