@@ -104,7 +104,8 @@ export class DriftEngine {
       severity: 'none',
       scores: {},
       methods: {},
-      averageScore: 0
+      averageScore: 0,
+      primaryMethod: this.config.primaryMethod || 'psi'
     };
 
     // Calculate drift using multiple methods
