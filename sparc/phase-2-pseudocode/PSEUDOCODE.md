@@ -1,5 +1,5 @@
 # SPARC Phase 2: Pseudocode
-## DriftStudio - Enterprise Data Drift Detection Platform
+## Agentic-drift - Enterprise Data Drift Detection Platform
 
 ### 1. Core Algorithms
 

@@ -1,8 +1,8 @@
-# 🎯 DriftStudio
+# 🎯 Agentic-drift
 
 **AI Agent Development Platform powered by Agentic Flow & AgentDB**
 
-DriftStudio integrates two powerful AI frameworks:
+Agentic-drift integrates two powerful AI frameworks:
 - **[Agentic Flow](https://github.com/ruvnet/agentic-flow)** - Production-ready AI agent orchestration with 66+ specialized agents
 - **[AgentDB](https://agentdb.ruv.io)** - Lightning-fast vector database and memory system for AI agents
 
@@ -30,7 +30,7 @@ DriftStudio integrates two powerful AI frameworks:
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd DriftStudio
+cd Agentic-drift
 
 # Install dependencies
 npm install
@@ -280,7 +280,7 @@ npx agentic-flow --agent swarm --task "Complex project" --optimize
 
 ## 📊 Performance Benchmarks
 
-| Operation | Traditional | DriftStudio | Improvement |
+| Operation | Traditional | Agentic-drift | Improvement |
 |-----------|-------------|-------------|-------------|
 | Code Review (100 files) | 35 seconds | 0.1 seconds | **352x faster** |
 | Migration (1000 files) | 5.87 minutes | 1 second | **350x faster** |

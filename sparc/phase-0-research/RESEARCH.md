@@ -1,5 +1,5 @@
 # SPARC Phase 0: Research & Discovery
-## DriftStudio - Enterprise Data Drift Detection Platform
+## Agentic-drift - Enterprise Data Drift Detection Platform
 
 ### Research Conducted (2024-2025)
 
@@ -76,7 +76,7 @@
 - Dataiku: MLOps platform
 - Acceldata: Data observability
 
-**DriftStudio Differentiators:**
+**Agentic-drift Differentiators:**
 1. **Predictive Drift**: Forecast 7-30 days ahead (unique)
 2. **Adaptive AI Agents**: Multi-agent response system
 3. **Learning Memory**: AgentDB-powered pattern recognition
@@ -127,7 +127,7 @@ The enterprise data drift detection space requires:
 4. **Industry-specific tuning** for different risk tolerances
 5. **Production-grade quality** through TDD and SPARC methodology
 
-DriftStudio will address these needs by combining:
+Agentic-drift will address these needs by combining:
 - Research-backed statistical methods
 - AgentDB's memory and learning capabilities
 - Agentic Flow's multi-agent orchestration

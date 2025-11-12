@@ -5,7 +5,7 @@
 
 ## Summary
 
-All tests are now passing! The DriftStudio drift detection platform with AgentDB integration has achieved 100% test coverage.
+All tests are now passing! The Agentic-drift drift detection platform with AgentDB integration has achieved 100% test coverage.
 
 ## Fixes Applied
 
@@ -70,7 +70,7 @@ if (!results.isDrift) {
 
 ## Files Modified
 
-1. `/home/user/DriftStudio/src/core/DriftEngine.js`
+1. `/home/user/Agentic-drift/src/core/DriftEngine.js`
    - Lines 257-263: Tiered threshold multipliers
    - Lines 268-275: Conditional severity calculation
    - Lines 435-445: Updated _calculateSeverity() signature

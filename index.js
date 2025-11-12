@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * DriftStudio - Agentic Flow & AgentDB Integration
+ * Agentic-drift - Agentic Flow & AgentDB Integration
  *
  * This demo showcases the integration of agentic-flow and agentdb
  * for building intelligent, learning AI agents.
  */
 
-console.log('🚀 DriftStudio - Agentic Flow & AgentDB Integration\n');
+console.log('🚀 Agentic-drift - Agentic Flow & AgentDB Integration\n');
 console.log('This repository integrates two powerful AI frameworks:');
 console.log('  • Agentic Flow - 66+ specialized agents with 213 MCP tools');
 console.log('  • AgentDB - Lightning-fast vector database for AI agents\n');

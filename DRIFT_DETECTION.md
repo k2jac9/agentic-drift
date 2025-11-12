@@ -1,10 +1,10 @@
-# 📊 DriftStudio - Enterprise Data Drift Detection Platform
+# 📊 Agentic-drift - Enterprise Data Drift Detection Platform
 
 **Production-ready platform for detecting, predicting, and adapting to data drift before it impacts model performance.**
 
 ## 🎯 Overview
 
-DriftStudio is an enterprise-grade data drift detection and prediction platform built using:
+Agentic-drift is an enterprise-grade data drift detection and prediction platform built using:
 - **Agentic Flow** - 66+ specialized AI agents with 213 MCP tools
 - **AgentDB** - Lightning-fast vector database for learning and memory
 - **Research-backed algorithms** - PSI, KS, JS-Divergence, statistical methods
@@ -48,7 +48,7 @@ Based on cutting-edge 2024-2025 research:
 ## 📁 Project Structure
 
 ```
-DriftStudio/
+Agentic-drift/
 ├── src/
 │   ├── core/
 │   │   └── DriftEngine.js           # Core drift detection engine
@@ -412,7 +412,7 @@ const config = {
 ## 📞 Support
 
 For issues and questions:
-- GitHub Issues: [DriftStudio Issues](https://github.com/k2jac9/DriftStudio/issues)
+- GitHub Issues: [Agentic-drift Issues](https://github.com/k2jac9/Agentic-drift/issues)
 - Agentic Flow: [https://github.com/ruvnet/agentic-flow](https://github.com/ruvnet/agentic-flow)
 - AgentDB: [https://agentdb.ruv.io](https://agentdb.ruv.io)
 

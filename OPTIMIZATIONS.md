@@ -1,4 +1,4 @@
-# DriftStudio Performance Optimizations
+# Agentic-drift Performance Optimizations
 
 ## Summary
 

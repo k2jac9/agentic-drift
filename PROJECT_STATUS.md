@@ -1,4 +1,4 @@
-# DriftStudio - Project Status
+# Agentic-drift - Project Status
 
 **Enterprise Data Drift Detection Platform with Agentic Flow & AgentDB**
 
@@ -11,7 +11,7 @@
 
 ## 🎯 Project Overview
 
-DriftStudio is an enterprise-grade data drift detection platform that **predicts and adapts to data drift before it happens**, built using:
+Agentic-drift is an enterprise-grade data drift detection platform that **predicts and adapts to data drift before it happens**, built using:
 
 - **SPARC Methodology**: Systematic development from Specification to Completion
 - **AgentDB**: Frontier memory system with Reflexion, Skill Library, and Causal Memory
@@ -179,7 +179,7 @@ CREATE TABLE skills (
 ## 📁 Project Structure
 
 ```
-DriftStudio/
+Agentic-drift/
 ├── src/
 │   ├── core/
 │   │   └── DriftEngine.js          # Core detection engine (342 lines)
@@ -457,8 +457,8 @@ console.log(result);
 
 ```bash
 # Clone repository
-git clone https://github.com/k2jac9/DriftStudio.git
-cd DriftStudio
+git clone https://github.com/k2jac9/Agentic-drift.git
+cd Agentic-drift
 
 # Install dependencies
 npm install
@@ -773,7 +773,7 @@ MIT License - see LICENSE file for details
 
 ---
 
-**DriftStudio** - Predict drift before it happens. Adapt continuously. Never stop learning.
+**Agentic-drift** - Predict drift before it happens. Adapt continuously. Never stop learning.
 
 **Status**: **85% Complete - Ready for Alpha Testing**
 **Next Milestone**: 100% Test Coverage (Phase 5 Completion)

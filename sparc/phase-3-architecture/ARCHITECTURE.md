@@ -1,11 +1,11 @@
 # SPARC Phase 3: Architecture
-## DriftStudio - Enterprise Data Drift Detection Platform
+## Agentic-drift - Enterprise Data Drift Detection Platform
 
 ### 1. System Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     DriftStudio Platform                         │
+│                     Agentic-drift Platform                         │
 │                                                                   │
 │  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐    │
 │  │   Client    │  │  Industry    │  │   Adaptive          │    │
@@ -351,7 +351,7 @@ Configuration:
 #### 3.3 Memory Integration Flow
 ```
 ┌─────────────────────────────────────────┐
-│          DriftStudio Events             │
+│          Agentic-drift Events             │
 └──────┬──────────────┬──────────────┬────┘
        │              │              │
        ▼              ▼              ▼
@@ -567,7 +567,7 @@ interface IMonitorAgent {
 │          Docker Container               │
 │                                         │
 │  ┌───────────────────────────────────┐ │
-│  │     DriftStudio Application       │ │
+│  │     Agentic-drift Application       │ │
 │  │                                   │ │
 │  │  • Node.js 18+                   │ │
 │  │  • DriftEngine                   │ │
@@ -609,7 +609,7 @@ interface IMonitorAgent {
                │
                ▼
 ┌─────────────────────────────────────────────────┐
-│            DriftStudio API Layer                 │
+│            Agentic-drift API Layer                 │
 │  • REST API (Express)                           │
 │  • WebSocket (Real-time alerts)                 │
 │  • GraphQL (Optional)                           │
@@ -617,7 +617,7 @@ interface IMonitorAgent {
                │
                ▼
 ┌─────────────────────────────────────────────────┐
-│         DriftStudio Core Platform                │
+│         Agentic-drift Core Platform                │
 │  ┌───────────┐  ┌────────────┐  ┌────────────┐ │
 │  │DriftEngine│  │  Industry  │  │  Adaptive  │ │
 │  │           │  │  Monitors  │  │  Response  │ │
@@ -668,7 +668,7 @@ interface IMonitorAgent {
 
 ```
 ┌────────────┐    ┌────────────┐    ┌────────────┐
-│DriftStudio │    │DriftStudio │    │DriftStudio │
+│Agentic-drift │    │Agentic-drift │    │Agentic-drift │
 │Instance 1  │    │Instance 2  │    │Instance N  │
 └─────┬──────┘    └─────┬──────┘    └─────┬──────┘
       │                 │                  │

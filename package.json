@@ -1,7 +1,7 @@
 {
   "name": "drift-studio",
   "version": "1.0.0",
-  "description": "DriftStudio with Agentic Flow and AgentDB integration",
+  "description": "Agentic-drift with Agentic Flow and AgentDB integration",
   "main": "index.js",
   "type": "module",
   "scripts": {

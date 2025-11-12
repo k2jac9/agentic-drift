@@ -1,5 +1,5 @@
 # SPARC Phase 1: Specification
-## DriftStudio - Enterprise Data Drift Detection Platform
+## Agentic-drift - Enterprise Data Drift Detection Platform
 
 ### 1. System Overview
 

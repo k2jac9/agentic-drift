@@ -1,5 +1,5 @@
 # SPARC Phase 4: Refinement (TDD Implementation)
-## DriftStudio - Enterprise Data Drift Detection Platform
+## Agentic-drift - Enterprise Data Drift Detection Platform
 
 ### TDD Implementation Complete ✅
 

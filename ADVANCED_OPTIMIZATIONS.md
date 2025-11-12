@@ -1,4 +1,4 @@
-# DriftStudio Advanced Optimizations - Phase 2
+# Agentic-drift Advanced Optimizations - Phase 2
 
 ## Summary
 
