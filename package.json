@@ -22,11 +22,15 @@
   "license": "MIT",
   "dependencies": {
     "agentdb": "^1.6.1",
-    "agentic-flow": "^1.10.2"
+    "agentic-flow": "^1.10.2",
+    "hnswlib-node": "^3.0.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.8",
     "@vitest/ui": "^4.0.8",
     "vitest": "^4.0.8"
+  },
+  "volta": {
+    "node": "22.21.1"
   }
 }
