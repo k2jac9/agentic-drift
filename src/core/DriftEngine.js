@@ -253,14 +253,23 @@ export class DriftEngine {
 
     // Determine drift based on weighted average score (not individual methods)
     // For small samples (≤20), apply a tolerance multiplier due to inherent unreliability
+    // Very small samples (≤10) need even higher tolerance due to large CDF steps
     let effectiveThreshold = this.config.driftThreshold;
-    if (minSampleSize <= 20) {
+    if (minSampleSize <= 10) {
+      effectiveThreshold = this.config.driftThreshold * 1.75; // 75% higher threshold for very small samples
+    } else if (minSampleSize <= 20) {
       effectiveThreshold = this.config.driftThreshold * 1.5; // 50% higher threshold for small samples
     }
     results.isDrift = results.averageScore > effectiveThreshold;
 
     // Determine severity
-    results.severity = this._calculateSeverity(results.averageScore);
+    // If no drift detected, severity is 'none' regardless of score
+    // Otherwise, use score thresholds adjusted for small samples
+    if (!results.isDrift) {
+      results.severity = 'none';
+    } else {
+      results.severity = this._calculateSeverity(results.averageScore, effectiveThreshold);
+    }
 
     // Update statistics
     this.stats.totalChecks++;
@@ -420,8 +429,10 @@ export class DriftEngine {
   /**
    * Calculate severity level based on average drift score
    */
-  _calculateSeverity(avgScore) {
-    const threshold = this.config.driftThreshold;
+  _calculateSeverity(avgScore, effectiveThreshold = null) {
+    // Use provided effective threshold (which may be adjusted for small samples)
+    // or fall back to base threshold
+    const threshold = effectiveThreshold || this.config.driftThreshold;
 
     if (avgScore < threshold * 0.5) return 'none';
     if (avgScore < threshold) return 'low';
