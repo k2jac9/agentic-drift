@@ -224,10 +224,6 @@ export class DriftEngine {
         score: score,
         isDrift: score > this.config.driftThreshold
       };
-
-      if (score > this.config.driftThreshold) {
-        results.isDrift = true;
-      }
     }
 
     // Calculate weighted average score (favor primary method)
@@ -237,12 +233,31 @@ export class DriftEngine {
       .filter(([name]) => name !== primaryMethod)
       .map(([_, score]) => score);
 
-    // Weight: 60% primary method, 40% distributed to others
-    const primaryWeight = 0.6;
-    const otherWeight = otherScores.length > 0 ? 0.4 / otherScores.length : 0;
+    // Adaptive weighting based on sample size
+    // For very small samples (<20), histogram-based methods (PSI, JSD) are unreliable
+    // Use KS test (non-parametric, handles small samples better) instead
+    const minSampleSize = Math.min(this.baselineDistribution.data.length, currentData.length);
+    let primaryWeight, otherWeight;
 
-    results.averageScore = primaryScore * primaryWeight +
-      otherScores.reduce((a, b) => a + b, 0) * otherWeight;
+    if (minSampleSize < 20 && primaryMethod === 'psi') {
+      // Small samples: favor KS over PSI
+      const ksScore = results.scores['ks'];
+      results.averageScore = ksScore * 0.7 + (results.scores['jsd'] + results.scores['statistical']) * 0.15;
+    } else {
+      // Normal weighting: 60% primary method, 40% distributed to others
+      primaryWeight = 0.6;
+      otherWeight = otherScores.length > 0 ? 0.4 / otherScores.length : 0;
+      results.averageScore = primaryScore * primaryWeight +
+        otherScores.reduce((a, b) => a + b, 0) * otherWeight;
+    }
+
+    // Determine drift based on weighted average score (not individual methods)
+    // For very small samples (<10), apply a tolerance multiplier due to inherent unreliability
+    let effectiveThreshold = this.config.driftThreshold;
+    if (minSampleSize < 10) {
+      effectiveThreshold = this.config.driftThreshold * 2.0; // Double threshold for tiny samples
+    }
+    results.isDrift = results.averageScore > effectiveThreshold;
 
     // Determine severity
     results.severity = this._calculateSeverity(results.averageScore);
@@ -273,7 +288,19 @@ export class DriftEngine {
    * Industry standard for credit risk modeling
    */
   _calculatePSI(baseline, current) {
-    const bins = 10;
+    // Adaptive binning based on sample size
+    // Use fewer bins for small samples to avoid sparsity
+    const minSampleSize = Math.min(baseline.length, current.length);
+    let bins;
+    if (minSampleSize < 10) {
+      bins = 3; // Very small samples: 3 bins
+    } else if (minSampleSize < 50) {
+      bins = 5; // Small samples: 5 bins
+    } else if (minSampleSize < 200) {
+      bins = 10; // Medium samples: 10 bins
+    } else {
+      bins = 20; // Large samples: 20 bins (industry standard)
+    }
 
     // Use combined min/max to ensure consistent bin boundaries
     const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
@@ -290,12 +317,14 @@ export class DriftEngine {
       // Skip if both are zero (empty bins)
       if (baselinePct === 0 && currentPct === 0) continue;
 
-      // Avoid log(0) by using small epsilon
-      const epsilon = 0.0001;
+      // Standard PSI practice: use 0.5% minimum for financial data
+      // This prevents artificial inflation when bins shift slightly
+      const epsilon = 0.005;
       const baselineSafe = Math.max(baselinePct, epsilon);
       const currentSafe = Math.max(currentPct, epsilon);
 
-      psi += (currentPct - baselinePct) * Math.log(currentSafe / baselineSafe);
+      const binContribution = (currentPct - baselinePct) * Math.log(currentSafe / baselineSafe);
+      psi += binContribution;
     }
 
     // PSI is always positive
@@ -335,7 +364,18 @@ export class DriftEngine {
    * Symmetric measure of distribution similarity
    */
   _jensenShannonDivergence(baseline, current) {
-    const bins = 10;
+    // Adaptive binning based on sample size (same as PSI)
+    const minSampleSize = Math.min(baseline.length, current.length);
+    let bins;
+    if (minSampleSize < 10) {
+      bins = 3;
+    } else if (minSampleSize < 50) {
+      bins = 5;
+    } else if (minSampleSize < 200) {
+      bins = 10;
+    } else {
+      bins = 20;
+    }
 
     // Use combined min/max to ensure consistent bin boundaries
     const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
