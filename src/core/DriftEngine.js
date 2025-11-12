@@ -225,14 +225,29 @@ export class DriftEngine {
         isDrift: score > this.config.driftThreshold
       };
 
+      // Debug logging for identical data test
+      if (process.env.NODE_ENV === 'test') {
+        console.log(`[DEBUG] ${method.name}: ${score.toFixed(6)}, isDrift: ${score > this.config.driftThreshold}`);
+      }
+
       if (score > this.config.driftThreshold) {
         results.isDrift = true;
       }
     }
 
-    // Calculate average score
-    const scores = Object.values(results.scores);
-    results.averageScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+    // Calculate weighted average score (favor primary method)
+    const primaryMethod = results.primaryMethod;
+    const primaryScore = results.scores[primaryMethod];
+    const otherScores = Object.entries(results.scores)
+      .filter(([name]) => name !== primaryMethod)
+      .map(([_, score]) => score);
+
+    // Weight: 60% primary method, 40% distributed to others
+    const primaryWeight = 0.6;
+    const otherWeight = otherScores.length > 0 ? 0.4 / otherScores.length : 0;
+
+    results.averageScore = primaryScore * primaryWeight +
+      otherScores.reduce((a, b) => a + b, 0) * otherWeight;
 
     // Determine severity
     results.severity = this._calculateSeverity(results.averageScore);
@@ -264,8 +279,13 @@ export class DriftEngine {
    */
   _calculatePSI(baseline, current) {
     const bins = 10;
-    const baselineHist = this._createHistogram(baseline, bins);
-    const currentHist = this._createHistogram(current, bins);
+
+    // Use combined min/max to ensure consistent bin boundaries
+    const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
+    const combinedMax = Math.max(Math.max(...baseline), Math.max(...current));
+
+    const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     let psi = 0;
     for (let i = 0; i < bins; i++) {
@@ -295,21 +315,28 @@ export class DriftEngine {
     const sortedBaseline = [...baseline].sort((a, b) => a - b);
     const sortedCurrent = [...current].sort((a, b) => a - b);
 
-    let maxDiff = 0;
-    let i = 0, j = 0;
+    // Merge both arrays with labels to track which distribution each value comes from
+    const merged = [];
+    for (const val of sortedBaseline) merged.push({ val, dist: 'baseline' });
+    for (const val of sortedCurrent) merged.push({ val, dist: 'current' });
+    merged.sort((a, b) => a.val - b.val);
 
-    while (i < sortedBaseline.length && j < sortedCurrent.length) {
-      const cdfBaseline = (i + 1) / sortedBaseline.length;
-      const cdfCurrent = (j + 1) / sortedCurrent.length;
+    let maxDiff = 0;
+    let baselineCount = 0;
+    let currentCount = 0;
+
+    for (const item of merged) {
+      if (item.dist === 'baseline') {
+        baselineCount++;
+      } else {
+        currentCount++;
+      }
+
+      const cdfBaseline = baselineCount / baseline.length;
+      const cdfCurrent = currentCount / current.length;
       const diff = Math.abs(cdfBaseline - cdfCurrent);
 
       maxDiff = Math.max(maxDiff, diff);
-
-      if (sortedBaseline[i] < sortedCurrent[j]) {
-        i++;
-      } else {
-        j++;
-      }
     }
 
     return maxDiff;
@@ -321,8 +348,13 @@ export class DriftEngine {
    */
   _jensenShannonDivergence(baseline, current) {
     const bins = 10;
-    const baselineHist = this._createHistogram(baseline, bins);
-    const currentHist = this._createHistogram(current, bins);
+
+    // Use combined min/max to ensure consistent bin boundaries
+    const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
+    const combinedMax = Math.max(Math.max(...baseline), Math.max(...current));
+
+    const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     // Normalize to probabilities
     const p = baselineHist.map(x => x / baseline.length);
@@ -411,13 +443,28 @@ export class DriftEngine {
   _createHistogram(data, bins) {
     const min = Math.min(...data);
     const max = Math.max(...data);
+    return this._createHistogramWithRange(data, bins, min, max);
+  }
+
+  /**
+   * Helper: Create histogram with explicit range (for consistent binning)
+   */
+  _createHistogramWithRange(data, bins, min, max) {
     const binSize = (max - min) / bins;
+
+    // Handle edge case where min === max
+    if (binSize === 0) {
+      const histogram = new Array(bins).fill(0);
+      histogram[0] = data.length;
+      return histogram;
+    }
 
     const histogram = new Array(bins).fill(0);
 
     for (const value of data) {
       let binIndex = Math.floor((value - min) / binSize);
       if (binIndex >= bins) binIndex = bins - 1; // Handle edge case
+      if (binIndex < 0) binIndex = 0; // Handle values below min
       histogram[binIndex]++;
     }
 
