@@ -28,7 +28,6 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.8",
     "@vitest/ui": "^4.0.8",
-    "esbuild": "^0.25.12",
     "vitest": "^4.0.8"
   },
   "volta": {
