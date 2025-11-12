@@ -21,12 +21,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "agentic-flow": "^1.10.2",
-    "agentdb": "^1.6.1"
+    "agentdb": "^1.6.1",
+    "agentic-flow": "^1.10.2"
   },
   "devDependencies": {
-    "vitest": "^1.0.4",
-    "@vitest/ui": "^1.0.4",
-    "@vitest/coverage-v8": "^1.0.4"
+    "@vitest/coverage-v8": "^4.0.8",
+    "@vitest/ui": "^4.0.8",
+    "vitest": "^4.0.8"
   }
 }
