@@ -252,10 +252,10 @@ export class DriftEngine {
     }
 
     // Determine drift based on weighted average score (not individual methods)
-    // For very small samples (<10), apply a tolerance multiplier due to inherent unreliability
+    // For small samples (≤20), apply a tolerance multiplier due to inherent unreliability
     let effectiveThreshold = this.config.driftThreshold;
-    if (minSampleSize < 10) {
-      effectiveThreshold = this.config.driftThreshold * 2.0; // Double threshold for tiny samples
+    if (minSampleSize <= 20) {
+      effectiveThreshold = this.config.driftThreshold * 1.5; // 50% higher threshold for small samples
     }
     results.isDrift = results.averageScore > effectiveThreshold;
 
