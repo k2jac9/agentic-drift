@@ -19,11 +19,28 @@ import {
 
 export class DriftEngine {
   constructor(config = {}, dependencies = null) {
+    // Validate config values
+    const driftThreshold = config.driftThreshold || 0.1;
+    if (driftThreshold <= 0 || driftThreshold > 1) {
+      throw new Error('driftThreshold must be between 0 and 1');
+    }
+
+    const predictionWindow = config.predictionWindow || 7;
+    if (predictionWindow < 1) {
+      throw new Error('predictionWindow must be positive');
+    }
+
+    const maxHistorySize = config.maxHistorySize || 1000;
+    if (maxHistorySize < 1) {
+      throw new Error('maxHistorySize must be positive');
+    }
+
     this.config = {
-      driftThreshold: config.driftThreshold || 0.1,
-      predictionWindow: config.predictionWindow || 7,
+      driftThreshold,
+      predictionWindow,
       autoAdapt: config.autoAdapt !== undefined ? config.autoAdapt : false,
       dbPath: config.dbPath || ':memory:',
+      maxHistorySize,
       ...config
     };
 
@@ -160,17 +177,35 @@ export class DriftEngine {
    * Set baseline distribution from training data
    */
   async setBaseline(data, metadata = {}) {
-    // Validate input
+    // Comprehensive input validation
     if (!data || data.length === 0) {
       throw new Error('Baseline data cannot be empty');
+    }
+
+    if (!Array.isArray(data)) {
+      throw new Error('Baseline data must be an array');
+    }
+
+    // Validate all values are numbers
+    for (let i = 0; i < data.length; i++) {
+      const value = data[i];
+      if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) {
+        throw new Error(`Invalid value at index ${i}: ${value}. All values must be finite numbers.`);
+      }
+    }
+
+    // Warn if sample size is very small
+    if (data.length < 3) {
+      console.warn(`Warning: Baseline sample size is very small (${data.length}). Drift detection may be unreliable.`);
     }
 
     // Calculate statistics
     const statistics = this._calculateStatistics(data);
 
-    // Store baseline
+    // Store baseline with cached sorted data for KS test optimization
     this.baselineDistribution = {
       data: data,
+      sortedData: [...data].sort((a, b) => a - b), // Cache sorted array for KS test
       statistics: statistics,
       metadata: metadata,
       timestamp: Date.now()
@@ -197,6 +232,23 @@ export class DriftEngine {
     // Validate baseline is set
     if (!this.baselineDistribution) {
       throw new Error('Baseline not set. Call setBaseline() first.');
+    }
+
+    // Validate current data
+    if (!currentData || currentData.length === 0) {
+      throw new Error('Current data cannot be empty');
+    }
+
+    if (!Array.isArray(currentData)) {
+      throw new Error('Current data must be an array');
+    }
+
+    // Validate all values are numbers
+    for (let i = 0; i < currentData.length; i++) {
+      const value = currentData[i];
+      if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) {
+        throw new Error(`Invalid value at index ${i}: ${value}. All values must be finite numbers.`);
+      }
     }
 
     const results = {
@@ -277,8 +329,11 @@ export class DriftEngine {
       this.stats.driftDetected++;
     }
 
-    // Store in history
+    // Store in history (bounded to prevent memory leaks)
     this.history.push(results);
+    if (this.history.length > this.config.maxHistorySize) {
+      this.history.shift(); // Remove oldest entry
+    }
 
     // Store drift event in AgentDB
     await this.reflexion.storeEpisode({
@@ -298,22 +353,11 @@ export class DriftEngine {
    */
   _calculatePSI(baseline, current) {
     // Adaptive binning based on sample size
-    // Use fewer bins for small samples to avoid sparsity
     const minSampleSize = Math.min(baseline.length, current.length);
-    let bins;
-    if (minSampleSize < 10) {
-      bins = 3; // Very small samples: 3 bins
-    } else if (minSampleSize < 50) {
-      bins = 5; // Small samples: 5 bins
-    } else if (minSampleSize < 200) {
-      bins = 10; // Medium samples: 10 bins
-    } else {
-      bins = 20; // Large samples: 20 bins (industry standard)
-    }
+    const bins = this._getAdaptiveBinCount(minSampleSize);
 
     // Use combined min/max to ensure consistent bin boundaries
-    const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
-    const combinedMax = Math.max(Math.max(...baseline), Math.max(...current));
+    const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
     const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
@@ -345,24 +389,35 @@ export class DriftEngine {
    * Non-parametric test for distribution differences
    */
   _kolmogorovSmirnov(baseline, current) {
-    const sortedBaseline = [...baseline].sort((a, b) => a - b);
+    // Use cached sorted baseline if available
+    const sortedBaseline = this.baselineDistribution?.sortedData || [...baseline].sort((a, b) => a - b);
     const sortedCurrent = [...current].sort((a, b) => a - b);
 
-    // Get all unique values from both distributions
-    const allValues = [...new Set([...sortedBaseline, ...sortedCurrent])].sort((a, b) => a - b);
-
+    // Optimized O(n) algorithm using two-pointer technique
+    // Merge sorted arrays and track CDFs
+    let i = 0, j = 0;
     let maxDiff = 0;
+    const nBaseline = baseline.length;
+    const nCurrent = current.length;
 
-    for (const value of allValues) {
-      // Count how many values are <= this value in each distribution (ECDF)
-      const baselineCount = sortedBaseline.filter(x => x <= value).length;
-      const currentCount = sortedCurrent.filter(x => x <= value).length;
-
-      const cdfBaseline = baselineCount / baseline.length;
-      const cdfCurrent = currentCount / current.length;
+    while (i < nBaseline || j < nCurrent) {
+      // Calculate CDFs at current position
+      const cdfBaseline = i / nBaseline;
+      const cdfCurrent = j / nCurrent;
       const diff = Math.abs(cdfBaseline - cdfCurrent);
 
       maxDiff = Math.max(maxDiff, diff);
+
+      // Advance pointer with smaller value
+      if (i >= nBaseline) {
+        j++;
+      } else if (j >= nCurrent) {
+        i++;
+      } else if (sortedBaseline[i] <= sortedCurrent[j]) {
+        i++;
+      } else {
+        j++;
+      }
     }
 
     return maxDiff;
@@ -373,22 +428,12 @@ export class DriftEngine {
    * Symmetric measure of distribution similarity
    */
   _jensenShannonDivergence(baseline, current) {
-    // Adaptive binning based on sample size (same as PSI)
+    // Adaptive binning based on sample size
     const minSampleSize = Math.min(baseline.length, current.length);
-    let bins;
-    if (minSampleSize < 10) {
-      bins = 3;
-    } else if (minSampleSize < 50) {
-      bins = 5;
-    } else if (minSampleSize < 200) {
-      bins = 10;
-    } else {
-      bins = 20;
-    }
+    const bins = this._getAdaptiveBinCount(minSampleSize);
 
     // Use combined min/max to ensure consistent bin boundaries
-    const combinedMin = Math.min(Math.min(...baseline), Math.min(...current));
-    const combinedMax = Math.max(Math.max(...baseline), Math.max(...current));
+    const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
     const baselineHist = this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
@@ -413,7 +458,8 @@ export class DriftEngine {
    * Based on mean and standard deviation shifts
    */
   _statisticalDrift(baseline, current) {
-    const baselineStats = this._calculateStatistics(baseline);
+    // Use cached baseline statistics instead of recalculating
+    const baselineStats = this.baselineDistribution.statistics;
     const currentStats = this._calculateStatistics(current);
 
     // Normalized difference in means
@@ -459,19 +505,64 @@ export class DriftEngine {
   }
 
   /**
+   * Helper: Efficiently find min/max in single pass
+   */
+  _findMinMax(...arrays) {
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const array of arrays) {
+      for (const value of array) {
+        if (value < min) min = value;
+        if (value > max) max = value;
+      }
+    }
+
+    return { min, max };
+  }
+
+  /**
+   * Helper: Calculate adaptive bin count based on sample size
+   * Follows industry standard: smaller samples need fewer bins
+   */
+  _getAdaptiveBinCount(minSampleSize) {
+    if (minSampleSize < 10) return 3;
+    if (minSampleSize < 50) return 5;
+    if (minSampleSize < 200) return 10;
+    return 20; // Industry standard for large samples
+  }
+
+  /**
    * Helper: Calculate basic statistics
    */
   _calculateStatistics(data) {
     const n = data.length;
-    const mean = data.reduce((a, b) => a + b, 0) / n;
-    const variance = data.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+
+    // Single pass for sum, min, max
+    for (const value of data) {
+      sum += value;
+      if (value < min) min = value;
+      if (value > max) max = value;
+    }
+
+    const mean = sum / n;
+
+    // Second pass for variance
+    let variance = 0;
+    for (const value of data) {
+      variance += Math.pow(value - mean, 2);
+    }
+    variance /= n;
     const std = Math.sqrt(variance);
 
     return {
       mean: mean,
       std: std,
-      min: Math.min(...data),
-      max: Math.max(...data),
+      min: min,
+      max: max,
       count: n
     };
   }
@@ -480,8 +571,7 @@ export class DriftEngine {
    * Helper: Create histogram for binning data
    */
   _createHistogram(data, bins) {
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const { min, max } = this._findMinMax(data);
     return this._createHistogramWithRange(data, bins, min, max);
   }
 
