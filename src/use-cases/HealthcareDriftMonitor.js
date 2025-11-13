@@ -11,33 +11,25 @@
  * or treatment recommendations, potentially affecting patient outcomes.
  */
 
-import { DriftEngine } from '../core/DriftEngine.js';
-import {
-  createDatabase,
-  EmbeddingService,
-  ReflexionMemory,
-  SkillLibrary
-} from 'agentdb';
+import { BaseMonitor } from './BaseMonitor.js';
 
-export class HealthcareDriftMonitor extends DriftEngine {
+export class HealthcareDriftMonitor extends BaseMonitor {
   constructor(config = {}, dependencies = null) {
     const healthcareConfig = {
       driftThreshold: config.driftThreshold || 0.08, // Lower threshold for healthcare
       predictionWindow: config.predictionWindow || 14, // 14 days for healthcare
       autoAdapt: config.autoAdapt !== false,
       industry: 'healthcare',
+      modelType: config.modelType || 'patient_outcome',
       ...config
     };
 
     super(healthcareConfig, dependencies);
 
-    this.modelType = config.modelType || 'patient_outcome';
     this.patientPopulation = config.patientPopulation || 'general';
 
-    // Healthcare-specific tracking
-    this.episodeMemory = [];
-    this.skillMemory = [];
-    this.alerts = [];
+    // Healthcare-specific tracking is handled by BaseMonitor
+    // episodeMemory, skillMemory, alerts are CircularBuffers from BaseMonitor
   }
 
   /**
@@ -50,28 +42,15 @@ export class HealthcareDriftMonitor extends DriftEngine {
       predictionWindow: config.predictionWindow || 14,
       autoAdapt: config.autoAdapt !== false,
       industry: 'healthcare',
+      modelType: config.modelType || 'patient_outcome',
       dbPath: config.dbPath || ':memory:',
       ...config
     };
 
     const monitor = new HealthcareDriftMonitor(healthcareConfig, null);
 
-    // Initialize AgentDB components asynchronously
-    monitor.db = await createDatabase(monitor.config.dbPath);
-
-    // Initialize AgentDB schema (inherited from DriftEngine)
-    await monitor._initializeAgentDBSchema();
-
-    // Initialize EmbeddingService with config
-    monitor.embedder = new EmbeddingService({
-      model: 'Xenova/all-MiniLM-L6-v2',
-      dimension: 384,
-      provider: 'transformers'
-    });
-    await monitor.embedder.initialize();
-
-    monitor.reflexion = new ReflexionMemory(monitor.db, monitor.embedder);
-    monitor.skills = new SkillLibrary(monitor.db, monitor.embedder);
+    // Use BaseMonitor's initialization
+    await BaseMonitor.initializeAgentDB(monitor);
 
     console.log('✅ HealthcareDriftMonitor initialized with AgentDB');
 
@@ -84,7 +63,7 @@ export class HealthcareDriftMonitor extends DriftEngine {
    */
   async monitorPatientOutcomes(outcomeScores, patientFeatures) {
     console.log('\n🏥 Healthcare - Patient Outcome Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     // Detect drift in outcome predictions
     const outcomeDrift = await this.detectDrift(outcomeScores, {
@@ -144,15 +123,12 @@ export class HealthcareDriftMonitor extends DriftEngine {
    */
   async monitorDiagnosticSystem(diagnosticScores, patientDemographics) {
     console.log('\n🔬 Healthcare - Diagnostic System Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const diagnosticDrift = await this.detectDrift(diagnosticScores);
 
     // Check for population-specific performance degradation
-    const populationDrift = await this._analyzePopulationPerformance(
-      diagnosticScores,
-      patientDemographics
-    );
+    const populationDrift = await this._analyzePopulationPerformance(diagnosticScores, patientDemographics);
 
     const result = {
       timestamp: Date.now(),
@@ -181,7 +157,7 @@ export class HealthcareDriftMonitor extends DriftEngine {
    */
   async monitorTreatmentRecommendations(recommendationScores, treatmentData) {
     console.log('\n💊 Healthcare - Treatment Recommendation Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const treatmentDrift = await this.detectDrift(recommendationScores);
 
@@ -217,7 +193,7 @@ export class HealthcareDriftMonitor extends DriftEngine {
    */
   async monitorDiseasePrevalence(prevalenceRates, populationData) {
     console.log('\n📈 Healthcare - Disease Prevalence Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const prevalenceDrift = await this.detectDrift(prevalenceRates);
 
@@ -289,20 +265,33 @@ export class HealthcareDriftMonitor extends DriftEngine {
     let riskScore = 0;
 
     // Outcome drift is primary safety indicator
-    if (outcomeDrift.severity === 'critical') riskScore += 4;
-    else if (outcomeDrift.severity === 'high') riskScore += 3;
-    else if (outcomeDrift.severity === 'medium') riskScore += 2;
-    else if (outcomeDrift.severity === 'low') riskScore += 1;
+    if (outcomeDrift.severity === 'critical') {
+      riskScore += 4;
+    } else if (outcomeDrift.severity === 'high') {
+      riskScore += 3;
+    } else if (outcomeDrift.severity === 'medium') {
+      riskScore += 2;
+    } else if (outcomeDrift.severity === 'low') {
+      riskScore += 1;
+    }
 
     // Demographic drift adds to risk
     const criticalDemographic = demographicDrift.filter(d => d.severity === 'high' || d.severity === 'critical').length;
     riskScore += criticalDemographic * 0.5;
 
     // More conservative thresholds for healthcare
-    if (riskScore >= 2.5) return 'critical';
-    if (riskScore >= 1.5) return 'high';
-    if (riskScore >= 0.8) return 'medium';
-    if (riskScore >= 0.3) return 'low';
+    if (riskScore >= 2.5) {
+      return 'critical';
+    }
+    if (riskScore >= 1.5) {
+      return 'high';
+    }
+    if (riskScore >= 0.8) {
+      return 'medium';
+    }
+    if (riskScore >= 0.3) {
+      return 'low';
+    }
     return 'none';
   }
 
