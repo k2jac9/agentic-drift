@@ -12,18 +12,70 @@
  */
 
 import { DriftEngine } from '../core/DriftEngine.js';
+import {
+  createDatabase,
+  EmbeddingService,
+  ReflexionMemory,
+  SkillLibrary
+} from 'agentdb';
 
 export class ManufacturingDriftMonitor extends DriftEngine {
-  constructor(config = {}) {
-    super({
+  constructor(config = {}, dependencies = null) {
+    const manufacturingConfig = {
       driftThreshold: config.driftThreshold || 0.12,
       predictionWindow: config.predictionWindow || 7, // 7 days for manufacturing
       autoAdapt: config.autoAdapt !== false,
+      industry: 'manufacturing',
       ...config
-    });
+    };
+
+    super(manufacturingConfig, dependencies);
 
     this.modelType = config.modelType || 'quality_control';
     this.productionLine = config.productionLine || 'line_1';
+
+    // Manufacturing-specific tracking
+    this.episodeMemory = [];
+    this.skillMemory = [];
+    this.alerts = [];
+  }
+
+  /**
+   * Factory method for creating ManufacturingDriftMonitor with async AgentDB initialization
+   * Use this for production, constructor with dependencies for testing
+   */
+  static async create(config = {}) {
+    const manufacturingConfig = {
+      driftThreshold: config.driftThreshold || 0.12,
+      predictionWindow: config.predictionWindow || 7,
+      autoAdapt: config.autoAdapt !== false,
+      industry: 'manufacturing',
+      dbPath: config.dbPath || ':memory:',
+      ...config
+    };
+
+    const monitor = new ManufacturingDriftMonitor(manufacturingConfig, null);
+
+    // Initialize AgentDB components asynchronously
+    monitor.db = await createDatabase(monitor.config.dbPath);
+
+    // Initialize AgentDB schema (inherited from DriftEngine)
+    await monitor._initializeAgentDBSchema();
+
+    // Initialize EmbeddingService with config
+    monitor.embedder = new EmbeddingService({
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    await monitor.embedder.initialize();
+
+    monitor.reflexion = new ReflexionMemory(monitor.db, monitor.embedder);
+    monitor.skills = new SkillLibrary(monitor.db, monitor.embedder);
+
+    console.log('✅ ManufacturingDriftMonitor initialized with AgentDB');
+
+    return monitor;
   }
 
   /**

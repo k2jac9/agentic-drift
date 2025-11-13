@@ -12,18 +12,70 @@
  */
 
 import { DriftEngine } from '../core/DriftEngine.js';
+import {
+  createDatabase,
+  EmbeddingService,
+  ReflexionMemory,
+  SkillLibrary
+} from 'agentdb';
 
 export class HealthcareDriftMonitor extends DriftEngine {
-  constructor(config = {}) {
-    super({
+  constructor(config = {}, dependencies = null) {
+    const healthcareConfig = {
       driftThreshold: config.driftThreshold || 0.08, // Lower threshold for healthcare
       predictionWindow: config.predictionWindow || 14, // 14 days for healthcare
       autoAdapt: config.autoAdapt !== false,
+      industry: 'healthcare',
       ...config
-    });
+    };
+
+    super(healthcareConfig, dependencies);
 
     this.modelType = config.modelType || 'patient_outcome';
     this.patientPopulation = config.patientPopulation || 'general';
+
+    // Healthcare-specific tracking
+    this.episodeMemory = [];
+    this.skillMemory = [];
+    this.alerts = [];
+  }
+
+  /**
+   * Factory method for creating HealthcareDriftMonitor with async AgentDB initialization
+   * Use this for production, constructor with dependencies for testing
+   */
+  static async create(config = {}) {
+    const healthcareConfig = {
+      driftThreshold: config.driftThreshold || 0.08,
+      predictionWindow: config.predictionWindow || 14,
+      autoAdapt: config.autoAdapt !== false,
+      industry: 'healthcare',
+      dbPath: config.dbPath || ':memory:',
+      ...config
+    };
+
+    const monitor = new HealthcareDriftMonitor(healthcareConfig, null);
+
+    // Initialize AgentDB components asynchronously
+    monitor.db = await createDatabase(monitor.config.dbPath);
+
+    // Initialize AgentDB schema (inherited from DriftEngine)
+    await monitor._initializeAgentDBSchema();
+
+    // Initialize EmbeddingService with config
+    monitor.embedder = new EmbeddingService({
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    await monitor.embedder.initialize();
+
+    monitor.reflexion = new ReflexionMemory(monitor.db, monitor.embedder);
+    monitor.skills = new SkillLibrary(monitor.db, monitor.embedder);
+
+    console.log('✅ HealthcareDriftMonitor initialized with AgentDB');
+
+    return monitor;
   }
 
   /**

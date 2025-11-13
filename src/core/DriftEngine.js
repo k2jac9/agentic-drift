@@ -10,12 +10,8 @@
  * TDD Implementation with AgentDB Integration
  */
 
-import {
-  createDatabase,
-  EmbeddingService,
-  ReflexionMemory,
-  SkillLibrary
-} from 'agentdb';
+import { createDatabase, EmbeddingService, ReflexionMemory, SkillLibrary } from 'agentdb';
+import { StatisticsUtil } from '../utils/StatisticsUtil.js';
 
 export class DriftEngine {
   constructor(config = {}, dependencies = null) {
@@ -239,7 +235,9 @@ export class DriftEngine {
       critique: `Baseline set with ${data.length} samples`
     });
 
-    console.log(`✓ Baseline set: ${data.length} samples, mean=${statistics.mean.toFixed(2)}, std=${statistics.std.toFixed(2)}`);
+    console.log(
+      `✓ Baseline set: ${data.length} samples, mean=${statistics.mean.toFixed(2)}, std=${statistics.std.toFixed(2)}`
+    );
 
     return this.baselineDistribution;
   }
@@ -371,8 +369,7 @@ export class DriftEngine {
       // Normal weighting: 60% primary method, 40% distributed to others
       primaryWeight = 0.6;
       otherWeight = otherScores.length > 0 ? 0.4 / otherScores.length : 0;
-      results.averageScore = primaryScore * primaryWeight +
-        otherScores.reduce((a, b) => a + b, 0) * otherWeight;
+      results.averageScore = primaryScore * primaryWeight + otherScores.reduce((a, b) => a + b, 0) * otherWeight;
     }
 
     // Determine drift based on weighted average score (not individual methods)
@@ -462,8 +459,9 @@ export class DriftEngine {
     const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
     // Use cached baseline histogram if available (major performance boost)
-    const baselineHist = this.baselineDistribution?.histograms?.[bins] ||
-                         this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    const baselineHist =
+      this.baselineDistribution?.histograms?.[bins] ||
+      this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     let psi = 0;
@@ -472,7 +470,9 @@ export class DriftEngine {
       const currentPct = currentHist[i] / current.length;
 
       // Skip if both are zero (empty bins)
-      if (baselinePct === 0 && currentPct === 0) continue;
+      if (baselinePct === 0 && currentPct === 0) {
+        continue;
+      }
 
       // Standard PSI practice: use 0.5% minimum for financial data
       // This prevents artificial inflation when bins shift slightly
@@ -499,7 +499,8 @@ export class DriftEngine {
 
     // Optimized O(n) algorithm using two-pointer technique
     // Merge sorted arrays and track CDFs
-    let i = 0, j = 0;
+    let i = 0,
+      j = 0;
     let maxDiff = 0;
     const nBaseline = baseline.length;
     const nCurrent = current.length;
@@ -540,8 +541,9 @@ export class DriftEngine {
     const { min: combinedMin, max: combinedMax } = this._findMinMax(baseline, current);
 
     // Use cached baseline histogram if available (major performance boost)
-    const baselineHist = this.baselineDistribution?.histograms?.[bins] ||
-                         this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
+    const baselineHist =
+      this.baselineDistribution?.histograms?.[bins] ||
+      this._createHistogramWithRange(baseline, bins, combinedMin, combinedMax);
     const currentHist = this._createHistogramWithRange(current, bins, combinedMin, combinedMax);
 
     // Normalize to probabilities
@@ -586,10 +588,18 @@ export class DriftEngine {
     // or fall back to base threshold
     const threshold = effectiveThreshold || this.config.driftThreshold;
 
-    if (avgScore < threshold * 0.5) return 'none';
-    if (avgScore < threshold) return 'low';
-    if (avgScore < threshold * 2) return 'medium';
-    if (avgScore < threshold * 3) return 'high';
+    if (avgScore < threshold * 0.5) {
+      return 'none';
+    }
+    if (avgScore < threshold) {
+      return 'low';
+    }
+    if (avgScore < threshold * 2) {
+      return 'medium';
+    }
+    if (avgScore < threshold * 3) {
+      return 'high';
+    }
     return 'critical';
   }
 
@@ -597,9 +607,8 @@ export class DriftEngine {
    * Get drift detection statistics
    */
   getStats() {
-    const driftRate = this.stats.totalChecks > 0
-      ? ((this.stats.driftDetected / this.stats.totalChecks) * 100).toFixed(1) + '%'
-      : '0%';
+    const driftRate =
+      this.stats.totalChecks > 0 ? ((this.stats.driftDetected / this.stats.totalChecks) * 100).toFixed(1) + '%' : '0%';
 
     return {
       totalChecks: this.stats.totalChecks,
@@ -619,8 +628,12 @@ export class DriftEngine {
 
     for (const array of arrays) {
       for (const value of array) {
-        if (value < min) min = value;
-        if (value > max) max = value;
+        if (value < min) {
+          min = value;
+        }
+        if (value > max) {
+          max = value;
+        }
       }
     }
 
@@ -632,9 +645,15 @@ export class DriftEngine {
    * Follows industry standard: smaller samples need fewer bins
    */
   _getAdaptiveBinCount(minSampleSize) {
-    if (minSampleSize < 10) return 3;
-    if (minSampleSize < 50) return 5;
-    if (minSampleSize < 200) return 10;
+    if (minSampleSize < 10) {
+      return 3;
+    }
+    if (minSampleSize < 50) {
+      return 5;
+    }
+    if (minSampleSize < 200) {
+      return 10;
+    }
     return 20; // Industry standard for large samples
   }
 
@@ -675,62 +694,31 @@ export class DriftEngine {
 
   /**
    * Helper: Calculate quick statistics (mean and std only) for adaptive sampling
-   * Faster than full _calculateStatistics when we only need mean/std
+   * Uses Welford's single-pass algorithm for numerical stability and performance
    */
   _calculateQuickStats(data) {
-    const n = data.length;
-    let sum = 0;
-
-    // Single pass for sum
-    for (const value of data) {
-      sum += value;
-    }
-
-    const mean = sum / n;
-
-    // Second pass for variance
-    let variance = 0;
-    for (const value of data) {
-      variance += Math.pow(value - mean, 2);
-    }
-    variance /= n;
-    const std = Math.sqrt(variance);
-
-    return { mean, std };
+    const stats = StatisticsUtil.calculateStats(data);
+    return {
+      mean: stats.mean,
+      std: stats.std
+    };
   }
 
   /**
-   * Helper: Calculate basic statistics
+   * Helper: Calculate basic statistics using Welford's single-pass algorithm
+   * More numerically stable and performant than two-pass approach
    */
   _calculateStatistics(data) {
-    const n = data.length;
-    let sum = 0;
-    let min = Infinity;
-    let max = -Infinity;
-
-    // Single pass for sum, min, max
-    for (const value of data) {
-      sum += value;
-      if (value < min) min = value;
-      if (value > max) max = value;
-    }
-
-    const mean = sum / n;
-
-    // Second pass for variance
-    let variance = 0;
-    for (const value of data) {
-      variance += Math.pow(value - mean, 2);
-    }
-    variance /= n;
-    const std = Math.sqrt(variance);
+    const stats = StatisticsUtil.calculateStats(data);
+    const range = StatisticsUtil.calculateRange(data);
 
     return {
-      mean: mean,
-      std: std,
-      min: min,
-      max: max,
-      count: n
+      mean: stats.mean,
+      std: stats.std,
+      variance: stats.variance,
+      min: range.min,
+      max: range.max,
+      count: stats.count
     };
   }
 
@@ -759,8 +747,12 @@ export class DriftEngine {
 
     for (const value of data) {
       let binIndex = Math.floor((value - min) / binSize);
-      if (binIndex >= bins) binIndex = bins - 1; // Handle edge case
-      if (binIndex < 0) binIndex = 0; // Handle values below min
+      if (binIndex >= bins) {
+        binIndex = bins - 1;
+      } // Handle edge case
+      if (binIndex < 0) {
+        binIndex = 0;
+      } // Handle values below min
       histogram[binIndex]++;
     }
 
