@@ -3,13 +3,13 @@
 /**
  * Safe GitHub CLI Helper
  * Prevents timeout issues when using gh commands with special characters
- * 
+ *
  * Usage:
  *   ./github-safe.js issue comment 123 "Message with `backticks`"
  *   ./github-safe.js pr create --title "Title" --body "Complex body"
  */
 
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -76,14 +76,22 @@ if ((command === 'issue' || command === 'pr') &&
         newArgs[bodyIndex + 1] = tmpFile;
       }
       
-      // Execute safely
-      const ghCommand = `gh ${command} ${subcommand} ${newArgs.join(' ')}`;
-      console.log(`Executing: ${ghCommand}`);
-      
-      const result = execSync(ghCommand, { 
+      // Execute safely with spawn to prevent command injection
+      const ghArgs = [command, subcommand, ...newArgs];
+      console.log(`Executing: gh ${ghArgs.join(' ')}`);
+
+      const result = spawnSync('gh', ghArgs, {
         stdio: 'inherit',
         timeout: 30000 // 30 second timeout
       });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      if (result.status !== 0) {
+        process.exit(result.status);
+      }
       
     } catch (error) {
       console.error('Error:', error.message);
@@ -97,10 +105,24 @@ if ((command === 'issue' || command === 'pr') &&
       }
     }
   } else {
-    // No body content, execute normally
-    execSync(`gh ${args.join(' ')}`, { stdio: 'inherit' });
+    // No body content, execute safely
+    const result = spawnSync('gh', args, { stdio: 'inherit' });
+    if (result.error) {
+      console.error('Error:', result.error.message);
+      process.exit(1);
+    }
+    if (result.status !== 0) {
+      process.exit(result.status);
+    }
   }
 } else {
-  // Other commands, execute normally
-  execSync(`gh ${args.join(' ')}`, { stdio: 'inherit' });
+  // Other commands, execute safely
+  const result = spawnSync('gh', args, { stdio: 'inherit' });
+  if (result.error) {
+    console.error('Error:', result.error.message);
+    process.exit(1);
+  }
+  if (result.status !== 0) {
+    process.exit(result.status);
+  }
 }

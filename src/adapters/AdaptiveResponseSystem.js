@@ -11,7 +11,13 @@
  * by 4.2x in maintaining prediction stability.
  */
 
-
+import {
+  createDatabase,
+  EmbeddingService,
+  ReflexionMemory,
+  SkillLibrary,
+  CausalMemoryGraph
+} from 'agentdb';
 
 export class AdaptiveResponseSystem {
   constructor(config = {}) {
