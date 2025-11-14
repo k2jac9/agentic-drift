@@ -103,6 +103,17 @@ export class AdaptiveResponseSystem {
    * @returns {Object} Response plan and execution results
    */
   async respond(driftEvent, context = {}) {
+    // Validate input
+    if (!driftEvent) {
+      throw new Error('driftEvent is required');
+    }
+    if (!Object.prototype.hasOwnProperty.call(driftEvent, 'isDrift')) {
+      throw new Error('driftEvent must have isDrift property');
+    }
+    if (!driftEvent.severity) {
+      throw new Error('driftEvent must have severity property');
+    }
+
     console.log('\n🤖 Adaptive Response System - Analyzing Drift Event');
     console.log('='.repeat(60));
 
@@ -542,24 +553,24 @@ class ExecutorAgent {
     // For demo, simulate execution
 
     switch (action.action) {
-      case 'send_alert':
-        console.log(`   📧 Sending alert: ${action.description}`);
-        return { success: true, message: 'Alert sent successfully' };
+    case 'send_alert':
+      console.log(`   📧 Sending alert: ${action.description}`);
+      return { success: true, message: 'Alert sent successfully' };
 
-      case 'trigger_retraining':
-        console.log(`   🔄 Triggering model retraining: ${action.description}`);
-        return { success: true, message: 'Retraining job queued' };
+    case 'trigger_retraining':
+      console.log(`   🔄 Triggering model retraining: ${action.description}`);
+      return { success: true, message: 'Retraining job queued' };
 
-      case 'increase_monitoring':
-        console.log(`   📊 Increasing monitoring: ${action.description}`);
-        return { success: true, message: 'Monitoring frequency increased' };
+    case 'increase_monitoring':
+      console.log(`   📊 Increasing monitoring: ${action.description}`);
+      return { success: true, message: 'Monitoring frequency increased' };
 
-      case 'update_fraud_rules':
-        console.log(`   🛡️  Updating fraud rules: ${action.description}`);
-        return { success: true, message: 'Fraud rules updated' };
+    case 'update_fraud_rules':
+      console.log(`   🛡️  Updating fraud rules: ${action.description}`);
+      return { success: true, message: 'Fraud rules updated' };
 
-      default:
-        return { success: false, message: `Unknown action: ${action.action}` };
+    default:
+      return { success: false, message: `Unknown action: ${action.action}` };
     }
   }
 }
