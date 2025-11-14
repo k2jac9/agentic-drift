@@ -189,7 +189,7 @@ describe('Complete End-to-End Workflows', () => {
 
       expect(result.sensorDrift).toBeDefined();
       if (result.sensorDrift.isDrift) {
-        expect(result.maintenanceRequired).toBeDefined();
+        expect(result.maintenanceUrgency).toBeDefined();
       }
     });
   });
@@ -308,7 +308,8 @@ describe('Complete End-to-End Workflows', () => {
         expect(response.analysis.confidence).toBeDefined();
 
         expect(response.recommendations).toBeDefined();
-        expect(Array.isArray(response.recommendations)).toBe(true);
+        expect(response.recommendations.actions).toBeDefined();
+        expect(Array.isArray(response.recommendations.actions)).toBe(true);
 
         // Step 5: Verify learning occurred
         if (responseSystem.config.learningEnabled) {

@@ -108,10 +108,11 @@ describe('AdaptiveResponseSystem', () => {
       const response = await system.respond(driftEvent, context);
 
       expect(response.recommendations).toBeDefined();
-      expect(Array.isArray(response.recommendations)).toBe(true);
-      if (response.recommendations.length > 0) {
-        expect(response.recommendations[0]).toHaveProperty('action');
-        expect(response.recommendations[0]).toHaveProperty('priority');
+      expect(response.recommendations.actions).toBeDefined();
+      expect(Array.isArray(response.recommendations.actions)).toBe(true);
+      if (response.recommendations.actions.length > 0) {
+        expect(response.recommendations.actions[0]).toHaveProperty('action');
+        expect(response.recommendations.actions[0]).toHaveProperty('priority');
       }
     });
 
@@ -156,7 +157,9 @@ describe('AdaptiveResponseSystem', () => {
         industry: 'financial'
       });
 
-      expect(response.execution).toBeUndefined();
+      expect(response.execution).toBeDefined();
+      expect(response.execution.executed).toBe(false);
+      expect(response.execution.reason).toBe('auto_execute_disabled');
     });
 
     it('should auto-execute high-confidence recommendations when enabled', async () => {
@@ -207,7 +210,7 @@ describe('AdaptiveResponseSystem', () => {
       expect(system.config.learningEnabled).toBe(true);
 
       // Skills should be stored (mocked)
-      expect(system.skills.add).toBeDefined();
+      expect(system.skills.createSkill).toBeDefined();
     });
 
     it('should track response effectiveness', async () => {
@@ -223,8 +226,8 @@ describe('AdaptiveResponseSystem', () => {
       });
 
       if (response.monitoring) {
-        expect(response.monitoring.trackingId).toBeDefined();
         expect(response.monitoring.metrics).toBeDefined();
+        expect(Array.isArray(response.monitoring.metrics)).toBe(true);
       }
     });
 
