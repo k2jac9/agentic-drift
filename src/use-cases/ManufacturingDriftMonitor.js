@@ -267,7 +267,18 @@ export class ManufacturingDriftMonitor extends BaseMonitor {
 
   _detectSupplierChanges(productionParams) {
     // In production, integrate with supply chain management system
-    // For demo, simulate supplier change detection
+    // Check if production params indicate a new supplier
+    if (productionParams && productionParams.newSupplier) {
+      return {
+        newSupplier: true,
+        supplierInfo: {
+          name: productionParams.supplierId || 'Unknown Supplier',
+          changeDate: Date.now()
+        },
+        lastChange: Date.now()
+      };
+    }
+
     return {
       newSupplier: false,
       supplierInfo: null,
