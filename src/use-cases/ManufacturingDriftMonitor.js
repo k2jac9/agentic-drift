@@ -11,33 +11,25 @@
  * requiring production batches to be singled out when new materials are used.
  */
 
-import { DriftEngine } from '../core/DriftEngine.js';
-import {
-  createDatabase,
-  EmbeddingService,
-  ReflexionMemory,
-  SkillLibrary
-} from 'agentdb';
+import { BaseMonitor } from './BaseMonitor.js';
 
-export class ManufacturingDriftMonitor extends DriftEngine {
+export class ManufacturingDriftMonitor extends BaseMonitor {
   constructor(config = {}, dependencies = null) {
     const manufacturingConfig = {
       driftThreshold: config.driftThreshold || 0.12,
       predictionWindow: config.predictionWindow || 7, // 7 days for manufacturing
       autoAdapt: config.autoAdapt !== false,
       industry: 'manufacturing',
+      modelType: config.modelType || 'quality_control',
       ...config
     };
 
     super(manufacturingConfig, dependencies);
 
-    this.modelType = config.modelType || 'quality_control';
     this.productionLine = config.productionLine || 'line_1';
 
-    // Manufacturing-specific tracking
-    this.episodeMemory = [];
-    this.skillMemory = [];
-    this.alerts = [];
+    // Manufacturing-specific tracking is handled by BaseMonitor
+    // episodeMemory, skillMemory, alerts are CircularBuffers from BaseMonitor
   }
 
   /**
@@ -50,28 +42,15 @@ export class ManufacturingDriftMonitor extends DriftEngine {
       predictionWindow: config.predictionWindow || 7,
       autoAdapt: config.autoAdapt !== false,
       industry: 'manufacturing',
+      modelType: config.modelType || 'quality_control',
       dbPath: config.dbPath || ':memory:',
       ...config
     };
 
     const monitor = new ManufacturingDriftMonitor(manufacturingConfig, null);
 
-    // Initialize AgentDB components asynchronously
-    monitor.db = await createDatabase(monitor.config.dbPath);
-
-    // Initialize AgentDB schema (inherited from DriftEngine)
-    await monitor._initializeAgentDBSchema();
-
-    // Initialize EmbeddingService with config
-    monitor.embedder = new EmbeddingService({
-      model: 'Xenova/all-MiniLM-L6-v2',
-      dimension: 384,
-      provider: 'transformers'
-    });
-    await monitor.embedder.initialize();
-
-    monitor.reflexion = new ReflexionMemory(monitor.db, monitor.embedder);
-    monitor.skills = new SkillLibrary(monitor.db, monitor.embedder);
+    // Use BaseMonitor's initialization
+    await BaseMonitor.initializeAgentDB(monitor);
 
     console.log('✅ ManufacturingDriftMonitor initialized with AgentDB');
 
@@ -84,7 +63,7 @@ export class ManufacturingDriftMonitor extends DriftEngine {
    */
   async monitorQualityControl(qualityScores, productionParams) {
     console.log('\n🏭 Manufacturing - Quality Control Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     // Detect drift in quality scores
     const qualityDrift = await this.detectDrift(qualityScores, {
@@ -150,7 +129,7 @@ export class ManufacturingDriftMonitor extends DriftEngine {
    */
   async monitorPredictiveMaintenance(sensorReadings, equipmentData) {
     console.log('\n⚙️  Manufacturing - Predictive Maintenance Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const sensorDrift = await this.detectDrift(sensorReadings);
 
@@ -193,7 +172,7 @@ export class ManufacturingDriftMonitor extends DriftEngine {
    */
   async monitorProcessOptimization(efficiencyScores, processParams) {
     console.log('\n📊 Manufacturing - Process Optimization Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const efficiencyDrift = await this.detectDrift(efficiencyScores);
 
@@ -233,7 +212,7 @@ export class ManufacturingDriftMonitor extends DriftEngine {
    */
   async monitorSupplyChain(componentQuality, supplierData) {
     console.log('\n📦 Manufacturing - Supply Chain Drift Monitor');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const qualityDrift = await this.detectDrift(componentQuality);
 
@@ -300,22 +279,37 @@ export class ManufacturingDriftMonitor extends DriftEngine {
     let impactScore = 0;
 
     // Quality drift is primary indicator
-    if (qualityDrift.severity === 'critical') impactScore += 4;
-    else if (qualityDrift.severity === 'high') impactScore += 3;
-    else if (qualityDrift.severity === 'medium') impactScore += 2;
-    else if (qualityDrift.severity === 'low') impactScore += 1;
+    if (qualityDrift.severity === 'critical') {
+      impactScore += 4;
+    } else if (qualityDrift.severity === 'high') {
+      impactScore += 3;
+    } else if (qualityDrift.severity === 'medium') {
+      impactScore += 2;
+    } else if (qualityDrift.severity === 'low') {
+      impactScore += 1;
+    }
 
     // Parameter drift adds to impact
     const criticalParams = parameterDrift.filter(p => p.severity === 'high' || p.severity === 'critical').length;
     impactScore += criticalParams * 0.5;
 
     // Supplier change adds uncertainty
-    if (supplierDrift.newSupplier) impactScore += 1;
+    if (supplierDrift.newSupplier) {
+      impactScore += 1;
+    }
 
-    if (impactScore >= 3.5) return 'critical';
-    if (impactScore >= 2.5) return 'high';
-    if (impactScore >= 1.5) return 'medium';
-    if (impactScore >= 0.5) return 'low';
+    if (impactScore >= 3.5) {
+      return 'critical';
+    }
+    if (impactScore >= 2.5) {
+      return 'high';
+    }
+    if (impactScore >= 1.5) {
+      return 'medium';
+    }
+    if (impactScore >= 0.5) {
+      return 'low';
+    }
     return 'none';
   }
 
@@ -356,17 +350,32 @@ export class ManufacturingDriftMonitor extends DriftEngine {
   _assessMaintenanceUrgency(sensorDrift, degradationPattern) {
     let urgency = 0;
 
-    if (sensorDrift.severity === 'critical') urgency += 4;
-    else if (sensorDrift.severity === 'high') urgency += 3;
-    else if (sensorDrift.severity === 'medium') urgency += 2;
-    else if (sensorDrift.severity === 'low') urgency += 1;
+    if (sensorDrift.severity === 'critical') {
+      urgency += 4;
+    } else if (sensorDrift.severity === 'high') {
+      urgency += 3;
+    } else if (sensorDrift.severity === 'medium') {
+      urgency += 2;
+    } else if (sensorDrift.severity === 'low') {
+      urgency += 1;
+    }
 
-    if (degradationPattern.pattern === 'accelerating') urgency += 1;
+    if (degradationPattern.pattern === 'accelerating') {
+      urgency += 1;
+    }
 
-    if (urgency >= 3.5) return 'critical';
-    if (urgency >= 2.5) return 'high';
-    if (urgency >= 1.5) return 'medium';
-    if (urgency >= 0.5) return 'low';
+    if (urgency >= 3.5) {
+      return 'critical';
+    }
+    if (urgency >= 2.5) {
+      return 'high';
+    }
+    if (urgency >= 1.5) {
+      return 'medium';
+    }
+    if (urgency >= 0.5) {
+      return 'low';
+    }
     return 'none';
   }
 
@@ -384,9 +393,13 @@ export class ManufacturingDriftMonitor extends DriftEngine {
         const mean = this._calculateMean(values);
         const cv = mean > 0 ? std / mean : 0; // Coefficient of variation
 
-        if (cv < 0.05) stability.stable++;
-        else if (cv < 0.15) stability.unstable++;
-        else stability.critical++;
+        if (cv < 0.05) {
+          stability.stable++;
+        } else if (cv < 0.15) {
+          stability.unstable++;
+        } else {
+          stability.critical++;
+        }
       }
     }
 

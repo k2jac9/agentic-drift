@@ -11,16 +11,14 @@
  * by 4.2x in maintaining prediction stability.
  */
 
-import {
-  createDatabase,
-  EmbeddingService,
-  ReflexionMemory,
-  SkillLibrary,
-  CausalMemoryGraph
-} from 'agentdb';
+import { createDatabase, EmbeddingService, ReflexionMemory, SkillLibrary, CausalMemoryGraph } from 'agentdb';
 
 export class AdaptiveResponseSystem {
-  constructor(config = {}) {
+  /**
+   * @param {Object} config - Configuration options
+   * @param {Object} dependencies - Injected dependencies for testing (optional)
+   */
+  constructor(config = {}, dependencies = null) {
     this.config = {
       autoExecute: config.autoExecute !== false,
       confidenceThreshold: config.confidenceThreshold || 0.7,
@@ -28,14 +26,23 @@ export class AdaptiveResponseSystem {
       ...config
     };
 
-    // Initialize AgentDB for learning
-    this.db = createDatabase(config.dbPath || ':memory:');
-    this.embedder = new EmbeddingService();
-    this.reflexion = new ReflexionMemory(this.db, this.embedder);
-    this.skills = new SkillLibrary(this.db, this.embedder);
-    this.causal = new CausalMemoryGraph(this.db);
+    // Use injected dependencies (for testing) or null (for production with factory)
+    if (dependencies) {
+      this.db = dependencies.db;
+      this.embedder = dependencies.embedder;
+      this.reflexion = dependencies.reflexion;
+      this.skills = dependencies.skills;
+      this.causal = dependencies.causal;
+    } else {
+      // Will be initialized asynchronously via static create() method
+      this.db = null;
+      this.embedder = null;
+      this.reflexion = null;
+      this.skills = null;
+      this.causal = null;
+    }
 
-    // Agent state
+    // Agent state - will be initialized after dependencies are set
     this.agents = {
       analyzer: new AnalyzerAgent(this.reflexion, this.skills),
       recommender: new RecommenderAgent(this.reflexion, this.skills),
@@ -55,6 +62,41 @@ export class AdaptiveResponseSystem {
   }
 
   /**
+   * Factory method for creating AdaptiveResponseSystem with async AgentDB initialization
+   *
+   * @param {Object} config - Configuration
+   * @returns {Promise<AdaptiveResponseSystem>} Initialized system
+   */
+  static async create(config = {}) {
+    // Create instance
+    const system = new AdaptiveResponseSystem(config, null);
+
+    // Initialize AgentDB components asynchronously
+    system.db = await createDatabase(config.dbPath || ':memory:');
+
+    system.embedder = new EmbeddingService({
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    await system.embedder.initialize();
+
+    system.reflexion = new ReflexionMemory(system.db, system.embedder);
+    system.skills = new SkillLibrary(system.db, system.embedder);
+    system.causal = new CausalMemoryGraph(system.db);
+
+    // Re-initialize agents with actual dependencies
+    system.agents = {
+      analyzer: new AnalyzerAgent(system.reflexion, system.skills),
+      recommender: new RecommenderAgent(system.reflexion, system.skills),
+      executor: new ExecutorAgent(system.reflexion, system.causal),
+      monitor: new MonitorAgent(system.reflexion)
+    };
+
+    return system;
+  }
+
+  /**
    * Respond to detected drift using multi-agent system
    * @param {Object} driftEvent - Drift detection result
    * @param {Object} context - Additional context
@@ -62,7 +104,7 @@ export class AdaptiveResponseSystem {
    */
   async respond(driftEvent, context = {}) {
     console.log('\n🤖 Adaptive Response System - Analyzing Drift Event');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     const startTime = Date.now();
     const response = {
@@ -84,19 +126,13 @@ export class AdaptiveResponseSystem {
 
       // Step 2: Recommender Agent - Generate actionable recommendations
       console.log('\n💡 Step 2: Generating recommendations...');
-      response.recommendations = await this.agents.recommender.recommend(
-        driftEvent,
-        response.analysis
-      );
+      response.recommendations = await this.agents.recommender.recommend(driftEvent, response.analysis);
       console.log(`✓ Generated ${response.recommendations.actions.length} recommended actions`);
 
       // Step 3: Executor Agent - Execute automated responses
       if (this.config.autoExecute && response.recommendations.confidence >= this.config.confidenceThreshold) {
         console.log('\n⚙️  Step 3: Executing automated responses...');
-        response.execution = await this.agents.executor.execute(
-          response.recommendations,
-          context
-        );
+        response.execution = await this.agents.executor.execute(response.recommendations, context);
         console.log(`✓ Executed ${response.execution.completedActions} actions`);
       } else {
         console.log('\n⏸️  Step 3: Auto-execution disabled or confidence too low');
@@ -109,15 +145,11 @@ export class AdaptiveResponseSystem {
 
       // Step 4: Monitor Agent - Track response effectiveness
       console.log('\n📈 Step 4: Setting up monitoring...');
-      response.monitoring = await this.agents.monitor.setupMonitoring(
-        driftEvent,
-        response.execution
-      );
+      response.monitoring = await this.agents.monitor.setupMonitoring(driftEvent, response.execution);
       console.log(`✓ Monitoring configured with ${response.monitoring.metrics.length} metrics`);
 
       response.success = true;
       this.stats.successfulResponses++;
-
     } catch (error) {
       console.error(`❌ Response failed: ${error.message}`);
       response.error = error.message;
@@ -127,7 +159,8 @@ export class AdaptiveResponseSystem {
     // Update stats
     this.stats.totalResponses++;
     const responseTime = Date.now() - startTime;
-    this.stats.avgResponseTime = (this.stats.avgResponseTime * (this.stats.totalResponses - 1) + responseTime) / this.stats.totalResponses;
+    this.stats.avgResponseTime =
+      (this.stats.avgResponseTime * (this.stats.totalResponses - 1) + responseTime) / this.stats.totalResponses;
 
     // Store response
     this.responses.push(response);
@@ -149,7 +182,10 @@ export class AdaptiveResponseSystem {
   getStats() {
     return {
       ...this.stats,
-      successRate: this.stats.totalResponses > 0 ? (this.stats.successfulResponses / this.stats.totalResponses * 100).toFixed(1) + '%' : '0%',
+      successRate:
+        this.stats.totalResponses > 0
+          ? ((this.stats.successfulResponses / this.stats.totalResponses) * 100).toFixed(1) + '%'
+          : '0%',
       recentResponses: this.responses.slice(-10)
     };
   }
@@ -303,9 +339,13 @@ class AnalyzerAgent {
     // Base confidence on drift severity and historical data
     let confidence = 0.5;
 
-    if (driftEvent.severity === 'critical') confidence += 0.3;
-    else if (driftEvent.severity === 'high') confidence += 0.2;
-    else if (driftEvent.severity === 'medium') confidence += 0.1;
+    if (driftEvent.severity === 'critical') {
+      confidence += 0.3;
+    } else if (driftEvent.severity === 'high') {
+      confidence += 0.2;
+    } else if (driftEvent.severity === 'medium') {
+      confidence += 0.1;
+    }
 
     if (similarEvents && similarEvents.length > 3) {
       confidence += 0.2;
@@ -422,11 +462,13 @@ class RecommenderAgent {
   }
 
   _prioritizeActions(actions, severity) {
-    const priorityOrder = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1 };
+    const priorityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
 
     return actions.sort((a, b) => {
       const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
-      if (priorityDiff !== 0) return priorityDiff;
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
 
       // If same priority, automated actions first
       return b.automated - a.automated;
@@ -551,12 +593,7 @@ class MonitorAgent {
   }
 
   _defineMetrics(driftEvent) {
-    return [
-      'drift_score',
-      'model_performance',
-      'prediction_accuracy',
-      'response_effectiveness'
-    ];
+    return ['drift_score', 'model_performance', 'prediction_accuracy', 'response_effectiveness'];
   }
 
   _defineCheckpoints() {

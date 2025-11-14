@@ -258,4 +258,56 @@ export class BaseMonitor extends DriftEngine {
 
     this.logger.info('Memory buffers cleared');
   }
+
+  /**
+   * Predict future drift based on current trends
+   *
+   * @param {number} daysAhead - Number of days to predict ahead
+   * @returns {Promise<Object>} Prediction result
+   */
+  async predictDrift(daysAhead) {
+    // Simple trend-based prediction
+    // In production, this would use more sophisticated ML models
+
+    if (!this.baselineDistribution || !this.baselineDistribution.data) {
+      return {
+        prediction: 'no_baseline',
+        willDrift: false,
+        confidence: 0,
+        estimatedDaysUntilDrift: null,
+        reason: 'No baseline set'
+      };
+    }
+
+    // Get recent drift scores from audit log
+    const recentDrifts = this.auditLog.getRecent(10).filter(entry => entry.driftDetected);
+
+    if (recentDrifts.length === 0) {
+      return {
+        prediction: 'stable',
+        willDrift: false,
+        confidence: 0.6,
+        estimatedDaysUntilDrift: null,
+        reason: 'No recent drift detected'
+      };
+    }
+
+    // Calculate trend from recent drift scores
+    const driftScores = recentDrifts.map(d => d.averageScore || 0);
+    const trend = StatisticsUtil.calculateTrend(driftScores);
+
+    // Predict if drift will occur within specified days
+    const avgDriftScore = StatisticsUtil.calculateMean(driftScores);
+    const willDrift = trend > 0 && avgDriftScore > this.config.driftThreshold / 2;
+
+    return {
+      prediction: willDrift ? 'drift_likely' : 'stable',
+      willDrift: willDrift,
+      confidence: willDrift ? Math.min(1, avgDriftScore / this.config.driftThreshold) : 0.6,
+      estimatedDaysUntilDrift: willDrift ? Math.ceil(daysAhead * (1 - avgDriftScore)) : null,
+      trend: trend,
+      daysAhead: daysAhead,
+      reason: willDrift ? 'Increasing drift trend detected' : 'Drift trend stable or decreasing'
+    };
+  }
 }

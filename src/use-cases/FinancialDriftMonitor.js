@@ -12,12 +12,7 @@
  */
 
 import { DriftEngine } from '../core/DriftEngine.js';
-import {
-  createDatabase,
-  EmbeddingService,
-  ReflexionMemory,
-  SkillLibrary
-} from 'agentdb';
+import { createDatabase, EmbeddingService, ReflexionMemory, SkillLibrary } from 'agentdb';
 
 export class FinancialDriftMonitor extends DriftEngine {
   constructor(config = {}, dependencies = null) {
@@ -33,6 +28,7 @@ export class FinancialDriftMonitor extends DriftEngine {
 
     super(financialConfig, dependencies);
 
+    this.industry = 'financial';
     this.modelType = config.modelType || 'credit_scoring';
     this.features = config.features || [];
     this.economicIndicators = [];
@@ -292,7 +288,9 @@ export class FinancialDriftMonitor extends DriftEngine {
   // ==================== HELPER METHODS ====================
 
   async _analyzeFeatureDrift(features) {
-    if (!features) return {};
+    if (!features) {
+      return {};
+    }
 
     const drifts = {};
 
@@ -321,22 +319,37 @@ export class FinancialDriftMonitor extends DriftEngine {
     let riskScore = 0;
 
     // Score drift contribution
-    if (scoreDrift.severity === 'critical') riskScore += 4;
-    else if (scoreDrift.severity === 'high') riskScore += 3;
-    else if (scoreDrift.severity === 'medium') riskScore += 2;
-    else if (scoreDrift.severity === 'low') riskScore += 1;
+    if (scoreDrift.severity === 'critical') {
+      riskScore += 4;
+    } else if (scoreDrift.severity === 'high') {
+      riskScore += 3;
+    } else if (scoreDrift.severity === 'medium') {
+      riskScore += 2;
+    } else if (scoreDrift.severity === 'low') {
+      riskScore += 1;
+    }
 
     // Feature drift contribution
     const featureCount = Object.keys(featureDrifts).length;
-    if (featureCount > 3) riskScore += 1;
+    if (featureCount > 3) {
+      riskScore += 1;
+    }
 
     // Economic factors (simplified)
-    if (Math.abs(economicFactors.interestRateChange) > 0.005) riskScore += 0.5;
+    if (Math.abs(economicFactors.interestRateChange) > 0.005) {
+      riskScore += 0.5;
+    }
 
     // Map to risk levels
-    if (riskScore >= 3.5) return 'critical';
-    if (riskScore >= 2.5) return 'high';
-    if (riskScore >= 1.5) return 'medium';
+    if (riskScore >= 3.5) {
+      return 'critical';
+    }
+    if (riskScore >= 2.5) {
+      return 'high';
+    }
+    if (riskScore >= 1.5) {
+      return 'medium';
+    }
     return 'low';
   }
 
@@ -428,7 +441,9 @@ export class FinancialDriftMonitor extends DriftEngine {
   }
 
   _calculateFalsePositiveRate() {
-    if (this.stats.totalChecks === 0) return '0%';
+    if (this.stats.totalChecks === 0) {
+      return '0%';
+    }
 
     // Simplified calculation
     const rate = (this.monitoringStats.falsePositives / this.stats.totalChecks) * 100;
@@ -436,12 +451,14 @@ export class FinancialDriftMonitor extends DriftEngine {
   }
 
   _assessComplianceStatus() {
-    const alertRate = this.stats.totalChecks > 0
-      ? this.monitoringStats.regulatoryAlerts / this.stats.totalChecks
-      : 0;
+    const alertRate = this.stats.totalChecks > 0 ? this.monitoringStats.regulatoryAlerts / this.stats.totalChecks : 0;
 
-    if (alertRate > 0.1) return 'CRITICAL';
-    if (alertRate > 0.05) return 'WARNING';
+    if (alertRate > 0.1) {
+      return 'CRITICAL';
+    }
+    if (alertRate > 0.05) {
+      return 'WARNING';
+    }
     return 'COMPLIANT';
   }
 
@@ -498,7 +515,9 @@ export class FinancialDriftMonitor extends DriftEngine {
     const currentVaR = sorted[varIndex];
 
     // Compare with baseline VaR
-    const baselineVaR = this.baselineDistribution ? this.baselineDistribution.data.sort((a, b) => a - b)[Math.floor(this.baselineDistribution.data.length * 0.95)] : currentVaR;
+    const baselineVaR = this.baselineDistribution
+      ? this.baselineDistribution.data.sort((a, b) => a - b)[Math.floor(this.baselineDistribution.data.length * 0.95)]
+      : currentVaR;
 
     return {
       currentVaR: currentVaR,
